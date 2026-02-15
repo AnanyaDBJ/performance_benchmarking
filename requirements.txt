@@ -1,0 +1,11 @@
+# LLM Benchmark Reporter - Python Dependencies
+
+# Core dependencies
+reportlab>=4.0.0
+pillow>=9.0.0
+
+# Optional dependencies (uncomment if needed)
+# pandas>=1.5.0          # For data analysis
+# matplotlib>=3.5.0      # For additional visualizations
+# pytest>=7.0.0          # For testing
+# black>=22.0.0          # For code formatting
