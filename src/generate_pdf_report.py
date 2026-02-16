@@ -200,7 +200,7 @@ class PDFReportGenerator:
             # List of dicts from compare_multi_endpoints
             endpoints = ', '.join([ep.get('name', ep.get('endpoint', 'Unknown')) for ep in endpoints_data])
         else:
-            # List of strings from compare_endpoints or benchmark_llm
+            # List of strings from benchmark_llm
             endpoints = ', '.join(endpoints_data) if endpoints_data else 'N/A'
 
         metadata = [

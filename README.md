@@ -48,23 +48,23 @@ python3 src/benchmark_llm.py \
 
 **Note:** Using `--output-dir` saves results JSON AND generates performance charts (PNG images) that can be used for PDF reports.
 
-### 2. Compare Two Endpoints
+### 2. Compare Multiple Endpoints (2-4)
 
 ```bash
-python3 src/compare_endpoints.py \
-  --endpoint-a gpt-model-a \
-  --endpoint-a-name "GPT Model A" \
-  --api-token-a dapi1234567890abcdef \
-  --api-root-a https://your-workspace.cloud.databricks.com \
-  --endpoint-b gpt-model-b \
-  --endpoint-b-name "GPT Model B" \
-  --api-token-b dapi0987654321fedcba \
-  --api-root-b https://your-workspace.cloud.databricks.com \
+python3 src/compare_multi_endpoints.py \
+  --endpoint-1 gpt-model-a \
+  --endpoint-1-name "GPT Model A" \
+  --api-token-1 dapi1234567890abcdef \
+  --api-root-1 https://your-workspace.cloud.databricks.com \
+  --endpoint-2 gpt-model-b \
+  --endpoint-2-name "GPT Model B" \
+  --api-token-2 dapi0987654321fedcba \
+  --api-root-2 https://your-workspace.cloud.databricks.com \
   --qps-list 0.5 1.0 \
   --parallel-workers 4 8
 ```
 
-### 3. Compare Multiple Endpoints (3-4)
+### 3. Compare 3-4 Endpoints
 
 ```bash
 python3 src/compare_multi_endpoints.py \
@@ -123,15 +123,15 @@ python3 src/benchmark_llm.py \
 
 ### Example 2: Compare Two Models
 ```bash
-python3 src/compare_endpoints.py \
-  --endpoint-a gpt-4o-mini \
-  --endpoint-a-name "GPT-4o Mini" \
-  --api-token-a YOUR_TOKEN \
-  --api-root-a YOUR_WORKSPACE \
-  --endpoint-b gpt-4o \
-  --endpoint-b-name "GPT-4o" \
-  --api-token-b YOUR_TOKEN \
-  --api-root-b YOUR_WORKSPACE \
+python3 src/compare_multi_endpoints.py \
+  --endpoint-1 gpt-4o-mini \
+  --endpoint-1-name "GPT-4o Mini" \
+  --api-token-1 YOUR_TOKEN \
+  --api-root-1 YOUR_WORKSPACE \
+  --endpoint-2 gpt-4o \
+  --endpoint-2-name "GPT-4o" \
+  --api-token-2 YOUR_TOKEN \
+  --api-root-2 YOUR_WORKSPACE \
   --qps-list 0.5 1.0 \
   --parallel-workers 4 8
 ```
@@ -183,8 +183,7 @@ llm-benchmark-reporter/
 │
 ├── src/                           # BENCHMARKING & REPORTING SCRIPTS
 │   ├── benchmark_llm.py           # Test single endpoint
-│   ├── compare_endpoints.py       # Compare 2 endpoints
-│   ├── compare_multi_endpoints.py # Compare 2+ endpoints
+│   ├── compare_multi_endpoints.py # Compare 2-4 endpoints
 │   ├── generate_pdf_report.py     # Create PDF reports
 │   └── generate_summary_stats.py  # Export CSV/JSON stats
 │
@@ -246,49 +245,7 @@ When using `--output-dir`, the script generates:
 
 ---
 
-### Compare Two Endpoints
-
-**Script:** `src/compare_endpoints.py`
-**Use when:** Deciding between two models
-
-```bash
-python3 src/compare_endpoints.py \
-  --endpoint-a model-a-name \
-  --endpoint-a-name "Model A Display Name" \
-  --api-token-a TOKEN_A \
-  --api-root-a https://workspace-a.databricks.com \
-  --endpoint-b model-b-name \
-  --endpoint-b-name "Model B Display Name" \
-  --api-token-b TOKEN_B \
-  --api-root-b https://workspace-b.databricks.com \
-  --input-tokens 1000 \
-  --output-tokens 200 500 \
-  --qps-list 0.5 1.0 2.0 \
-  --parallel-workers 4 6 8 \
-  --requests-per-worker 5 \
-  --timeout 300 \
-  --output-dir comparison_analysis
-```
-
-**Required parameters for Endpoint A:**
-- `--endpoint-a`: First endpoint name
-- `--endpoint-a-name`: Display name for charts/reports
-- `--api-token-a`: API token for endpoint A
-
-**Required parameters for Endpoint B:**
-- `--endpoint-b`: Second endpoint name
-- `--endpoint-b-name`: Display name for charts/reports
-- `--api-token-b`: API token for endpoint B
-
-**Optional parameters:**
-- `--api-root-a`: Workspace URL for endpoint A (default: env var or default URL)
-- `--api-root-b`: Workspace URL for endpoint B (default: env var or default URL)
-- Same test parameters as single endpoint benchmark
-- `--output-dir`: Output directory (default: comparison_analysis)
-
----
-
-### Compare Multiple Endpoints (3-4)
+### Compare Multiple Endpoints (2-4)
 
 **Script:** `src/compare_multi_endpoints.py`
 **Use when:** Evaluating 3-4 models at once
@@ -426,8 +383,7 @@ python3 utils/monitor_live.py --endpoint your-endpoint
 | Scenario | Script to Use | Why |
 |----------|---------------|-----|
 | Test ONE endpoint performance | `benchmark_llm.py` | Simplest - just need endpoint name and token |
-| Compare TWO endpoints | `compare_endpoints.py` | Side-by-side comparison with detailed charts |
-| Compare 3-4 endpoints | `compare_multi_endpoints.py` | Comprehensive comparison across multiple models |
+| Compare 2-4 endpoints | `compare_multi_endpoints.py` | Comprehensive comparison across multiple models |
 
 ### Key Differences
 
@@ -448,20 +404,6 @@ python3 utils/monitor_live.py --endpoint your-endpoint
 
   # Then generate PDF report:
   python3 src/generate_pdf_report.py --folder my_benchmark_results
-  ```
-
-#### Two Endpoints (`compare_endpoints.py`)
-- **Input:** 2 endpoints (A and B)
-- **Output:** Comparison charts + detailed analysis + JSON results
-- **Charts generated:**
-  - One chart per worker configuration (e.g., `comparison_4workers.png`, `comparison_8workers.png`)
-  - Overall summary chart showing trends
-- **Use case:** A/B testing, choosing between two models
-- **Example:**
-  ```bash
-  python3 src/compare_endpoints.py \
-    --endpoint-a gpt-20b --endpoint-a-name "GPT-20B" --api-token-a TOKEN_A \
-    --endpoint-b gpt-120b --endpoint-b-name "GPT-120B" --api-token-b TOKEN_B
   ```
 
 #### Multiple Endpoints (`compare_multi_endpoints.py`)
@@ -488,8 +430,7 @@ python3 utils/monitor_live.py --endpoint your-endpoint
 
 ```
 Single Endpoint:    ✓ Simplest   → Just endpoint + token
-Two Endpoints:      ✓✓ Medium    → 2 sets of credentials
-Multiple Endpoints: ✓✓✓ Complex  → 2-4 sets of credentials + more charts
+Multiple Endpoints: ✓✓ Medium    → 2-4 sets of credentials + comprehensive charts
 ```
 
 ### Environment Variables (Optional)
@@ -562,19 +503,21 @@ python3 src/generate_summary_stats.py --csv --json
 ### Pattern 4: A/B Test New Model
 ```bash
 # Compare old vs new
-python3 src/compare_endpoints.py \
-  --endpoint-a current-prod-v1 \
-  --endpoint-a-name "Current Production v1" \
-  --api-token-a TOKEN \
-  --endpoint-b candidate-v2 \
-  --endpoint-b-name "Candidate v2" \
-  --api-token-b TOKEN \
+python3 src/compare_multi_endpoints.py \
+  --endpoint-1 current-prod-v1 \
+  --endpoint-1-name "Current Production v1" \
+  --api-token-1 TOKEN \
+  --endpoint-2 candidate-v2 \
+  --endpoint-2-name "Candidate v2" \
+  --api-token-2 TOKEN \
   --qps-list 1.0 2.0 5.0 \
   --parallel-workers 4 8 \
   --output-dir ab_test_results
 
 # Review results
-python3 src/generate_pdf_report.py --folder ab_test_results
+python3 src/generate_pdf_report.py \
+  --folder ab_test_results \
+  --results-filename all_results.json
 ```
 
 ### Pattern 5: Daily Automated Testing
@@ -588,21 +531,22 @@ DATE=$(date +%Y%m%d)
 API_TOKEN="dapi123abc"
 API_ROOT="https://workspace.databricks.com"
 
-python3 src/compare_endpoints.py \
-  --endpoint-a production-endpoint \
-  --endpoint-a-name "Production" \
-  --api-token-a $API_TOKEN \
-  --api-root-a $API_ROOT \
-  --endpoint-b staging-endpoint \
-  --endpoint-b-name "Staging" \
-  --api-token-b $API_TOKEN \
-  --api-root-b $API_ROOT \
+python3 src/compare_multi_endpoints.py \
+  --endpoint-1 production-endpoint \
+  --endpoint-1-name "Production" \
+  --api-token-1 $API_TOKEN \
+  --api-root-1 $API_ROOT \
+  --endpoint-2 staging-endpoint \
+  --endpoint-2-name "Staging" \
+  --api-token-2 $API_TOKEN \
+  --api-root-2 $API_ROOT \
   --qps-list 1.0 \
   --parallel-workers 4 \
   --output-dir "results_${DATE}"
 
 python3 src/generate_pdf_report.py \
   --folder "results_${DATE}" \
+  --results-filename all_results.json \
   --output "reports/daily_${DATE}.pdf"
 ```
 
@@ -742,9 +686,9 @@ python3 src/benchmark_llm.py \
 For two endpoint comparison:
 ```bash
 # Minimum required parameters:
-python3 src/compare_endpoints.py \
-  --endpoint-a NAME_A --endpoint-a-name "Display A" --api-token-a TOKEN_A \
-  --endpoint-b NAME_B --endpoint-b-name "Display B" --api-token-b TOKEN_B
+python3 src/compare_multi_endpoints.py \
+  --endpoint-1 NAME_1 --endpoint-1-name "Display 1" --api-token-1 TOKEN_1 \
+  --endpoint-2 NAME_2 --endpoint-2-name "Display 2" --api-token-2 TOKEN_2
 ```
 
 For multiple endpoints:
@@ -819,11 +763,11 @@ llm-benchmark-stats --csv --json
 | Scenario | Script to Use | Key Parameters |
 |----------|---------------|----------------|
 | Quick health check | `benchmark_llm.py` | `--endpoint --api-token` |
-| Compare 2 models | `compare_endpoints.py` | `--endpoint-a --endpoint-b` + tokens |
+| Compare 2 models | `compare_multi_endpoints.py` | `--endpoint-1 --endpoint-2` + tokens |
 | Evaluate 3-4 models | `compare_multi_endpoints.py` | `--endpoint-1 --endpoint-2 [--endpoint-3] [--endpoint-4]` |
 | Vendor selection | `compare_multi_endpoints.py` + PDF report | All 4 endpoints + comprehensive test params |
 | Production readiness | `benchmark_llm.py` | High `--qps-list` and `--parallel-workers` |
-| A/B testing new model | `compare_endpoints.py` | Production vs candidate endpoints |
+| A/B testing new model | `compare_multi_endpoints.py` | Production vs candidate endpoints |
 | Daily monitoring | Automate with cron + any script | Use `--output-dir results_$(date +%Y%m%d)` |
 | Cost optimization | Compare different models | Same test params across all models |
 | Load/stress testing | `benchmark_llm.py` | `--qps-list 5.0 10.0 --parallel-workers 16 32` |
@@ -869,21 +813,6 @@ llm-benchmark-stats --csv --json
 --output-file results.json        # Optional: Save to JSON only (no charts)
 ```
 
-#### Two Endpoints (`compare_endpoints.py`)
-```bash
---endpoint-a NAME_A               # Required: First endpoint name
---endpoint-a-name "Display A"     # Required: Display name for A
---api-token-a TOKEN_A             # Required: Token for A
---api-root-a URL_A                # Optional: Workspace URL for A
-
---endpoint-b NAME_B               # Required: Second endpoint name
---endpoint-b-name "Display B"     # Required: Display name for B
---api-token-b TOKEN_B             # Required: Token for B
---api-root-b URL_B                # Optional: Workspace URL for B
-
---output-dir comparison_analysis  # Optional: Output directory
-```
-
 #### Multiple Endpoints (`compare_multi_endpoints.py`)
 ```bash
 # Endpoints 1 and 2 are REQUIRED
@@ -914,7 +843,6 @@ llm-benchmark-stats --csv --json
 ```bash
 # Get detailed help for any script
 python3 src/benchmark_llm.py --help
-python3 src/compare_endpoints.py --help
 python3 src/compare_multi_endpoints.py --help
 ```
 
