@@ -162,6 +162,7 @@ class EndpointBenchmark:
             'throughput': tokens_per_sec,
             'avg_input_tokens': avg_input_tokens,
             'avg_output_tokens': avg_output_tokens,
+            'successful_requests': len(self.latencies),
             'failed_requests': self.failed_requests,
             'total_requests': num_workers * num_requests_per_worker,
             'elapsed_time': elapsed_time

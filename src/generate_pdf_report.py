@@ -193,7 +193,15 @@ class PDFReportGenerator:
 
         # Metadata table
         timestamp = self.data.get('timestamp', 'N/A')
-        endpoints = ', '.join(self.data.get('endpoints', []))
+
+        # Handle endpoints - can be list of strings or list of dicts
+        endpoints_data = self.data.get('endpoints', [])
+        if endpoints_data and isinstance(endpoints_data[0], dict):
+            # List of dicts from compare_multi_endpoints
+            endpoints = ', '.join([ep.get('name', ep.get('endpoint', 'Unknown')) for ep in endpoints_data])
+        else:
+            # List of strings from compare_endpoints or benchmark_llm
+            endpoints = ', '.join(endpoints_data) if endpoints_data else 'N/A'
 
         metadata = [
             ['Report Date:', datetime.now().strftime('%B %d, %Y')],

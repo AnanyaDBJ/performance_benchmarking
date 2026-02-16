@@ -11,8 +11,12 @@ import json
 import statistics
 import argparse
 import sys
+import os
 from datetime import datetime
 from typing import List, Dict, Optional
+from pathlib import Path
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
 
 
 class LLMBenchmark:
@@ -141,7 +145,9 @@ class LLMBenchmark:
         # Compute statistics
         avg_input_tokens = statistics.mean([inp for inp, _, _ in self.latencies])
         avg_output_tokens = statistics.mean([outp for _, outp, _ in self.latencies])
-        median_latency = statistics.median([latency for _, _, latency in self.latencies])
+        latency_values = [latency for _, _, latency in self.latencies]
+        median_latency = statistics.median(latency_values)
+        p95_latency = statistics.quantiles(latency_values, n=20)[18] if len(latency_values) > 1 else median_latency
         tokens_per_sec = (avg_input_tokens + avg_output_tokens) * num_workers / median_latency
 
         print(f"\n{'─'*70}")
@@ -149,17 +155,21 @@ class LLMBenchmark:
         print(f"  Input tokens:    {avg_input_tokens:.0f}")
         print(f"  Output tokens:   {avg_output_tokens:.0f}")
         print(f"  Median latency:  {median_latency:.2f}s")
+        print(f"  P95 latency:     {p95_latency:.2f}s")
         print(f"  Throughput:      {tokens_per_sec:.1f} tokens/sec")
         print(f"  Failed requests: {self.failed_requests}/{num_workers * num_requests_per_worker}")
         print(f"  Total time:      {elapsed_time:.2f}s")
         print(f"{'─'*70}")
 
         return {
+            'endpoint_name': self.endpoint_name,
             'num_workers': num_workers,
             'median_latency': median_latency,
+            'p95_latency': p95_latency,
             'throughput': tokens_per_sec,
             'avg_input_tokens': avg_input_tokens,
             'avg_output_tokens': avg_output_tokens,
+            'successful_requests': len(self.latencies),
             'failed_requests': self.failed_requests,
             'total_requests': num_workers * num_requests_per_worker,
             'elapsed_time': elapsed_time
@@ -177,23 +187,25 @@ async def run_test_suite(benchmark: LLMBenchmark, args):
     print(f"{'#'*70}")
 
     for qps in args.qps_list:
-        for out_tokens in args.output_tokens:
-            for num_workers in args.parallel_workers:
-                result = await benchmark.run_benchmark(
-                    num_workers=num_workers,
-                    num_requests_per_worker=args.requests_per_worker,
-                    in_tokens=args.input_tokens,
-                    out_tokens=out_tokens,
-                    qps=qps
-                )
+        for in_tokens in args.input_tokens:
+            for out_tokens in args.output_tokens:
+                for num_workers in args.parallel_workers:
+                    result = await benchmark.run_benchmark(
+                        num_workers=num_workers,
+                        num_requests_per_worker=args.requests_per_worker,
+                        in_tokens=in_tokens,
+                        out_tokens=out_tokens,
+                        qps=qps
+                    )
 
-                if result:
-                    result['qps'] = qps
-                    result['output_tokens'] = out_tokens
-                    all_results.append(result)
+                    if result:
+                        result['qps'] = qps
+                        result['input_tokens'] = in_tokens
+                        result['output_tokens'] = out_tokens
+                        all_results.append(result)
 
-                # Brief pause between tests
-                await asyncio.sleep(2)
+                    # Brief pause between tests
+                    await asyncio.sleep(2)
 
     print(f"\n{'#'*70}")
     print(f"# Test Suite Complete!")
@@ -203,9 +215,26 @@ async def run_test_suite(benchmark: LLMBenchmark, args):
     # Print summary table
     print_summary_table(all_results)
 
-    # Save results to file if requested
-    if args.output_file:
-        save_results(all_results, args.output_file)
+    # Save results and generate visualizations
+    if args.output_dir or args.output_file:
+        output_dir = args.output_dir or os.path.dirname(args.output_file) or 'benchmark_results'
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+        # Generate charts
+        print(f"\n{'='*70}")
+        print("Generating performance visualizations...")
+        print(f"{'='*70}\n")
+
+        create_performance_charts(all_results, benchmark.endpoint_name, output_dir)
+        create_summary_chart(all_results, benchmark.endpoint_name, output_dir)
+
+        # Save results JSON
+        json_file = args.output_file if args.output_file else f"{output_dir}/results.json"
+        save_results(all_results, json_file, benchmark.endpoint_name)
+
+        print(f"\n{'='*70}")
+        print(f"All files saved to: {output_dir}/")
+        print(f"{'='*70}\n")
 
 
 def print_summary_table(results: List[Dict]):
@@ -213,25 +242,27 @@ def print_summary_table(results: List[Dict]):
     if not results:
         return
 
-    print(f"\n{'='*100}")
+    print(f"\n{'='*115}")
     print(f"SUMMARY TABLE")
-    print(f"{'='*100}")
-    print(f"{'QPS':<8} {'Out Tokens':<12} {'Workers':<10} {'Latency (s)':<15} "
+    print(f"{'='*115}")
+    print(f"{'QPS':<8} {'In Tokens':<12} {'Out Tokens':<12} {'Workers':<10} {'Latency (s)':<15} "
           f"{'Throughput':<20} {'Failed':<10}")
-    print(f"{'-'*100}")
+    print(f"{'-'*115}")
 
     for r in results:
-        print(f"{r['qps']:<8} {int(r['output_tokens']):<12} {r['num_workers']:<10} "
+        in_tok = int(r.get('input_tokens', r.get('avg_input_tokens', 0)))
+        print(f"{r['qps']:<8} {in_tok:<12} {int(r['output_tokens']):<12} {r['num_workers']:<10} "
               f"{r['median_latency']:<15.2f} {r['throughput']:<20.1f} "
               f"{r['failed_requests']}/{r['total_requests']:<10}")
 
-    print(f"{'='*100}\n")
+    print(f"{'='*115}\n")
 
 
-def save_results(results: List[Dict], filename: str):
+def save_results(results: List[Dict], filename: str, endpoint_name: str):
     """Save results to JSON file"""
     output = {
         'timestamp': datetime.now().isoformat(),
+        'endpoints': [endpoint_name],
         'results': results
     }
 
@@ -239,6 +270,196 @@ def save_results(results: List[Dict], filename: str):
         json.dump(output, f, indent=2)
 
     print(f"✓ Results saved to {filename}")
+
+
+def create_performance_charts(results: List[Dict], endpoint_name: str, output_dir: str):
+    """Create performance charts for single endpoint benchmarks"""
+
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+    if not results:
+        print("⚠ No results to visualize")
+        return
+
+    # Group results by worker count
+    results_by_workers = {}
+    for result in results:
+        workers = result['num_workers']
+        if workers not in results_by_workers:
+            results_by_workers[workers] = []
+        results_by_workers[workers].append(result)
+
+    # Create charts for each worker configuration
+    for num_workers, worker_results in results_by_workers.items():
+        # Sort by QPS and output tokens
+        worker_results_sorted = sorted(
+            worker_results,
+            key=lambda x: (x.get('qps', 0), x.get('output_tokens', 0))
+        )
+
+        # Create labels
+        labels = [
+            f"QPS={r.get('qps', 'N/A')}\n{r.get('output_tokens', 0)}tok"
+            for r in worker_results_sorted
+        ]
+        x_pos = range(len(labels))
+
+        # Extract metrics
+        median_latencies = [r['median_latency'] for r in worker_results_sorted]
+        p95_latencies = [r.get('p95_latency', r['median_latency']) for r in worker_results_sorted]
+        throughputs = [r['throughput'] for r in worker_results_sorted]
+        failed_requests = [r['failed_requests'] for r in worker_results_sorted]
+
+        # Create figure with 4 subplots
+        fig = plt.figure(figsize=(20, 12))
+        fig.suptitle(f'{endpoint_name} - {num_workers} Parallel Workers',
+                    fontsize=18, fontweight='bold', y=0.995)
+
+        # 1. Median Latency
+        ax1 = plt.subplot(2, 2, 1)
+        bars1 = ax1.bar(x_pos, median_latencies, color='#e74c3c', alpha=0.8,
+                       edgecolor='black', linewidth=1.5)
+        ax1.set_xlabel('Traffic Condition', fontsize=12, fontweight='bold')
+        ax1.set_ylabel('Median Latency (seconds)', fontsize=12, fontweight='bold')
+        ax1.set_title('Median Latency', fontsize=14, fontweight='bold', pad=10)
+        ax1.set_xticks(x_pos)
+        ax1.set_xticklabels(labels, rotation=45, ha='right', fontsize=9)
+        ax1.grid(True, alpha=0.3, axis='y')
+
+        for bar in bars1:
+            height = bar.get_height()
+            ax1.text(bar.get_x() + bar.get_width()/2., height,
+                    f'{height:.2f}s', ha='center', va='bottom',
+                    fontsize=8, fontweight='bold')
+
+        # 2. P95 Latency
+        ax2 = plt.subplot(2, 2, 2)
+        bars2 = ax2.bar(x_pos, p95_latencies, color='#c0392b', alpha=0.8,
+                       edgecolor='black', linewidth=1.5)
+        ax2.set_xlabel('Traffic Condition', fontsize=12, fontweight='bold')
+        ax2.set_ylabel('P95 Latency (seconds)', fontsize=12, fontweight='bold')
+        ax2.set_title('P95 Latency (95th Percentile)', fontsize=14, fontweight='bold', pad=10)
+        ax2.set_xticks(x_pos)
+        ax2.set_xticklabels(labels, rotation=45, ha='right', fontsize=9)
+        ax2.grid(True, alpha=0.3, axis='y')
+
+        for bar in bars2:
+            height = bar.get_height()
+            ax2.text(bar.get_x() + bar.get_width()/2., height,
+                    f'{height:.2f}s', ha='center', va='bottom',
+                    fontsize=8, fontweight='bold')
+
+        # 3. Throughput
+        ax3 = plt.subplot(2, 2, 3)
+        bars3 = ax3.bar(x_pos, throughputs, color='#3498db', alpha=0.8,
+                       edgecolor='black', linewidth=1.5)
+        ax3.set_xlabel('Traffic Condition', fontsize=12, fontweight='bold')
+        ax3.set_ylabel('Throughput (tokens/second)', fontsize=12, fontweight='bold')
+        ax3.set_title('Throughput', fontsize=14, fontweight='bold', pad=10)
+        ax3.set_xticks(x_pos)
+        ax3.set_xticklabels(labels, rotation=45, ha='right', fontsize=9)
+        ax3.grid(True, alpha=0.3, axis='y')
+
+        for bar in bars3:
+            height = bar.get_height()
+            ax3.text(bar.get_x() + bar.get_width()/2., height,
+                    f'{int(height)}', ha='center', va='bottom',
+                    fontsize=8, fontweight='bold')
+
+        # 4. Failed Requests
+        ax4 = plt.subplot(2, 2, 4)
+        bars4 = ax4.bar(x_pos, failed_requests, color='#e84118', alpha=0.8,
+                       edgecolor='black', linewidth=1.5)
+        ax4.set_xlabel('Traffic Condition', fontsize=12, fontweight='bold')
+        ax4.set_ylabel('Failed Requests', fontsize=12, fontweight='bold')
+        ax4.set_title('Failure Rate', fontsize=14, fontweight='bold', pad=10)
+        ax4.set_xticks(x_pos)
+        ax4.set_xticklabels(labels, rotation=45, ha='right', fontsize=9)
+        ax4.grid(True, alpha=0.3, axis='y')
+
+        for bar in bars4:
+            height = bar.get_height()
+            ax4.text(bar.get_x() + bar.get_width()/2., height,
+                    f'{int(height)}', ha='center', va='bottom',
+                    fontsize=8, fontweight='bold')
+
+        plt.tight_layout()
+
+        # Save figure
+        filename = f"{output_dir}/performance_{num_workers}workers.png"
+        plt.savefig(filename, dpi=300, bbox_inches='tight', facecolor='white')
+        print(f"✓ Saved: {filename}")
+        plt.close()
+
+
+def create_summary_chart(results: List[Dict], endpoint_name: str, output_dir: str):
+    """Create overall summary chart showing trends across all worker configurations"""
+
+    if not results:
+        return
+
+    # Group by worker count
+    data_by_workers = {}
+    for result in results:
+        workers = result['num_workers']
+        if workers not in data_by_workers:
+            data_by_workers[workers] = {
+                'latencies': [],
+                'throughputs': [],
+                'p95_latencies': []
+            }
+        data_by_workers[workers]['latencies'].append(result['median_latency'])
+        data_by_workers[workers]['throughputs'].append(result['throughput'])
+        p95 = result.get('p95_latency', result['median_latency'])
+        data_by_workers[workers]['p95_latencies'].append(p95)
+
+    # Calculate averages
+    workers_list = sorted(data_by_workers.keys())
+    avg_latencies = [statistics.mean(data_by_workers[w]['latencies']) for w in workers_list]
+    avg_throughputs = [statistics.mean(data_by_workers[w]['throughputs']) for w in workers_list]
+    avg_p95 = [statistics.mean(data_by_workers[w]['p95_latencies']) for w in workers_list]
+
+    # Create summary figure
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
+    fig.suptitle(f'{endpoint_name} - Overall Performance Summary',
+                fontsize=16, fontweight='bold')
+
+    # Latency trend
+    ax1.plot(workers_list, avg_latencies, marker='o', linewidth=3, markersize=10,
+            label='Median Latency', color='#e74c3c')
+    ax1.plot(workers_list, avg_p95, marker='s', linewidth=3, markersize=10,
+            label='P95 Latency', color='#c0392b', linestyle='--')
+    ax1.set_xlabel('Parallel Workers', fontsize=12, fontweight='bold')
+    ax1.set_ylabel('Average Latency (seconds)', fontsize=12, fontweight='bold')
+    ax1.set_title('Latency Scaling', fontsize=14, fontweight='bold')
+    ax1.legend(fontsize=11)
+    ax1.grid(True, alpha=0.3)
+
+    for i, (w, lat, p95) in enumerate(zip(workers_list, avg_latencies, avg_p95)):
+        ax1.annotate(f'{lat:.2f}s', (w, lat), textcoords="offset points",
+                    xytext=(0,10), ha='center', fontsize=9, color='#e74c3c', fontweight='bold')
+        ax1.annotate(f'{p95:.2f}s', (w, p95), textcoords="offset points",
+                    xytext=(0,-15), ha='center', fontsize=9, color='#c0392b', fontweight='bold')
+
+    # Throughput trend
+    ax2.plot(workers_list, avg_throughputs, marker='o', linewidth=3, markersize=10,
+            label='Throughput', color='#3498db')
+    ax2.set_xlabel('Parallel Workers', fontsize=12, fontweight='bold')
+    ax2.set_ylabel('Average Throughput (tokens/second)', fontsize=12, fontweight='bold')
+    ax2.set_title('Throughput Scaling', fontsize=14, fontweight='bold')
+    ax2.legend(fontsize=11)
+    ax2.grid(True, alpha=0.3)
+
+    for i, (w, thr) in enumerate(zip(workers_list, avg_throughputs)):
+        ax2.annotate(f'{int(thr)}', (w, thr), textcoords="offset points",
+                    xytext=(0,10), ha='center', fontsize=9, color='#3498db', fontweight='bold')
+
+    plt.tight_layout()
+
+    filename = f"{output_dir}/summary_overall.png"
+    plt.savefig(filename, dpi=300, bbox_inches='tight', facecolor='white')
+    print(f"✓ Saved: {filename}")
+    plt.close()
 
 
 def main():
@@ -251,7 +472,7 @@ Examples:
   %(prog)s --endpoint gpt-oss-20b-load-testing --api-token YOUR_TOKEN
 
   # Custom test with specific parameters
-  %(prog)s --endpoint my-llm --api-token TOKEN --qps 1 2 --output-tokens 500 1000 --workers 4 8
+  %(prog)s --endpoint my-llm --api-token TOKEN --input-tokens 500 1000 --output-tokens 200 500 --qps-list 1 2 --parallel-workers 4 8
 
   # Save results to file
   %(prog)s --endpoint my-llm --api-token TOKEN --output results.json
@@ -267,8 +488,8 @@ Examples:
     # Optional arguments
     parser.add_argument('--api-root', default='https://your-workspace.cloud.databricks.com',
                        help='Databricks API root URL')
-    parser.add_argument('--input-tokens', type=int, default=1000,
-                       help='Number of input tokens (default: 1000)')
+    parser.add_argument('--input-tokens', type=int, nargs='+', default=[1000],
+                       help='Input token sizes to test (default: 1000)')
     parser.add_argument('--output-tokens', type=int, nargs='+', default=[200, 500, 1000],
                        help='Output token sizes to test (default: 200 500 1000)')
     parser.add_argument('--qps-list', type=float, nargs='+', default=[0.5, 1.0],
@@ -283,6 +504,8 @@ Examples:
                        help='Maximum retry attempts (default: 3)')
     parser.add_argument('--output-file', '-o',
                        help='Save results to JSON file')
+    parser.add_argument('--output-dir',
+                       help='Output directory for results and charts (default: benchmark_results)')
 
     args = parser.parse_args()
 

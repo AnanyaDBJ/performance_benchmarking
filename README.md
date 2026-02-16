@@ -27,17 +27,66 @@ pip install -e .
 
 ## 🚀 Quick Start
 
-### 1. Compare Two Endpoints
+### Prerequisites
+
+Before running benchmarks, you need:
+1. **API Root URL** (hostname): Your Databricks workspace URL (e.g., `https://your-workspace.cloud.databricks.com`)
+2. **API Token**: Your Databricks personal access token
+3. **Endpoint Name**: The name of your LLM serving endpoint
+
+### 1. Test a Single Endpoint
+
+```bash
+python3 src/benchmark_llm.py \
+  --endpoint your-endpoint-name \
+  --api-token dapi1234567890abcdef \
+  --api-root https://your-workspace.cloud.databricks.com \
+  --qps-list 0.5 1.0 \
+  --parallel-workers 4 6 \
+  --output-dir my_benchmark_results
+```
+
+**Note:** Using `--output-dir` saves results JSON AND generates performance charts (PNG images) that can be used for PDF reports.
+
+### 2. Compare Two Endpoints
 
 ```bash
 python3 src/compare_endpoints.py \
-  --endpoint1 gpt-4o \
-  --endpoint2 databricks-gpt-120b \
-  --qps 1.0 \
-  --num_workers 4
+  --endpoint-a gpt-model-a \
+  --endpoint-a-name "GPT Model A" \
+  --api-token-a dapi1234567890abcdef \
+  --api-root-a https://your-workspace.cloud.databricks.com \
+  --endpoint-b gpt-model-b \
+  --endpoint-b-name "GPT Model B" \
+  --api-token-b dapi0987654321fedcba \
+  --api-root-b https://your-workspace.cloud.databricks.com \
+  --qps-list 0.5 1.0 \
+  --parallel-workers 4 8
 ```
 
-### 2. Generate PDF Report
+### 3. Compare Multiple Endpoints (3-4)
+
+```bash
+python3 src/compare_multi_endpoints.py \
+  --endpoint-1 model-a \
+  --endpoint-1-name "Model A" \
+  --api-token-1 TOKEN_1 \
+  --api-root-1 https://workspace1.databricks.com \
+  --endpoint-2 model-b \
+  --endpoint-2-name "Model B" \
+  --api-token-2 TOKEN_2 \
+  --api-root-2 https://workspace2.databricks.com \
+  --qps-list 0.5 1.0 \
+  --parallel-workers 4 8 \
+  --output-tokens 200 500
+
+# Generate PDF report (note: multi-endpoint saves to all_results.json)
+python3 src/generate_pdf_report.py \
+  --folder multi_endpoint_comparison \
+  --results-filename all_results.json
+```
+
+### 4. Generate PDF Report
 
 ```bash
 # Simple way
@@ -47,13 +96,79 @@ python3 src/compare_endpoints.py \
 python3 src/generate_pdf_report.py --folder comparison_results
 ```
 
-### 3. Get Statistics
+### 5. Get Statistics
 
 ```bash
 python3 src/generate_summary_stats.py --csv --json
 ```
 
-**Output:** PDF report + CSV/JSON data in `comparison_results/`
+**Output:** PDF report + CSV/JSON data in results folder
+
+---
+
+## ⚡ Complete Examples (Copy & Paste)
+
+Replace these placeholder values before running:
+- `YOUR_TOKEN` → Your Databricks API token (e.g., `dapi1234567890abcdef`)
+- `YOUR_WORKSPACE` → Your workspace URL (e.g., `https://your-workspace.cloud.databricks.com`)
+- `ENDPOINT_NAME` → Your endpoint name (e.g., `gpt-4o-mini`)
+
+### Example 1: Test a Single Endpoint (Simplest)
+```bash
+python3 src/benchmark_llm.py \
+  --endpoint ENDPOINT_NAME \
+  --api-token YOUR_TOKEN \
+  --api-root YOUR_WORKSPACE
+```
+
+### Example 2: Compare Two Models
+```bash
+python3 src/compare_endpoints.py \
+  --endpoint-a gpt-4o-mini \
+  --endpoint-a-name "GPT-4o Mini" \
+  --api-token-a YOUR_TOKEN \
+  --api-root-a YOUR_WORKSPACE \
+  --endpoint-b gpt-4o \
+  --endpoint-b-name "GPT-4o" \
+  --api-token-b YOUR_TOKEN \
+  --api-root-b YOUR_WORKSPACE \
+  --qps-list 0.5 1.0 \
+  --parallel-workers 4 8
+```
+
+### Example 3: Compare 4 Models with Custom Settings
+```bash
+python3 src/compare_multi_endpoints.py \
+  --endpoint-1 gpt-4o-mini \
+  --endpoint-1-name "GPT-4o Mini" \
+  --api-token-1 YOUR_TOKEN \
+  --endpoint-2 gpt-4o \
+  --endpoint-2-name "GPT-4o" \
+  --api-token-2 YOUR_TOKEN \
+  --endpoint-3 claude-3-5-sonnet \
+  --endpoint-3-name "Claude 3.5 Sonnet" \
+  --api-token-3 YOUR_TOKEN \
+  --endpoint-4 llama-3-70b \
+  --endpoint-4-name "Llama 3 70B" \
+  --api-token-4 YOUR_TOKEN \
+  --qps-list 0.5 1.0 \
+  --parallel-workers 4 8 \
+  --output-tokens 200 500 \
+  --output-dir model_comparison_2024
+```
+
+### Example 4: Using Environment Variables (Recommended)
+```bash
+# First, set environment variables (add to ~/.bashrc or ~/.zshrc for persistence)
+export API_ROOT="https://your-workspace.cloud.databricks.com"
+export API_TOKEN="dapi1234567890abcdef"
+
+# Now you can omit --api-root and --api-token
+python3 src/benchmark_llm.py \
+  --endpoint my-endpoint \
+  --api-token $API_TOKEN \
+  --api-root $API_ROOT
+```
 
 ---
 
@@ -93,17 +208,41 @@ llm-benchmark-reporter/
 
 ```bash
 python3 src/benchmark_llm.py \
-  --endpoint your-endpoint \
-  --qps 1.0 \
-  --num_workers 4 \
-  --max_output_tokens 200
+  --endpoint your-endpoint-name \
+  --api-token dapi1234567890abcdef \
+  --api-root https://your-workspace.cloud.databricks.com \
+  --input-tokens 500 1000 1500 \
+  --output-tokens 200 500 1000 \
+  --qps-list 0.5 1.0 2.0 \
+  --parallel-workers 4 6 8 \
+  --requests-per-worker 5 \
+  --timeout 300 \
+  --max-retries 3 \
+  --output-dir benchmark_results
 ```
 
-**Key parameters:**
-- `--endpoint`: Endpoint name/URL
-- `--qps`: Queries per second (0.25, 0.5, 1.0, 2.0, etc.)
-- `--num_workers`: Parallel workers (2, 4, 8, 16)
-- `--max_output_tokens`: Max response tokens
+**Required parameters:**
+- `--endpoint`: Your LLM serving endpoint name (NOT the full URL)
+- `--api-token`: Databricks personal access token (starts with `dapi`)
+
+**Optional parameters:**
+- `--api-root`: Databricks workspace URL (default: `https://your-workspace.cloud.databricks.com`)
+- `--input-tokens`: List of input token sizes to test (default: 1000). You can pass multiple values like `--input-tokens 500 1000 1500`
+- `--output-tokens`: List of output token sizes to test (default: 200 500 1000)
+- `--qps-list`: List of queries per second rates (default: 0.5 1.0)
+- `--parallel-workers`: List of parallel worker counts (default: 4 6)
+- `--requests-per-worker`: Requests per worker (default: 5)
+- `--timeout`: Request timeout in seconds (default: 300)
+- `--max-retries`: Maximum retry attempts (default: 3)
+- `--output-dir`: Output directory for results and charts (creates JSON + PNG charts for PDF reports)
+- `--output-file`: Save results to JSON file (if used without --output-dir, won't generate charts)
+
+**Chart Generation:**
+When using `--output-dir`, the script generates:
+- Performance charts for each worker configuration (latency, P95, throughput, failures)
+- Overall summary chart showing scaling trends
+- `results.json` file with all benchmark data
+- All files are saved in the specified output directory and can be used to generate PDF reports
 
 ---
 
@@ -114,36 +253,97 @@ python3 src/benchmark_llm.py \
 
 ```bash
 python3 src/compare_endpoints.py \
-  --endpoint1 model-a \
-  --endpoint2 model-b \
-  --qps 0.5 1.0 \
-  --num_workers 2 4 \
-  --max_output_tokens 200
+  --endpoint-a model-a-name \
+  --endpoint-a-name "Model A Display Name" \
+  --api-token-a TOKEN_A \
+  --api-root-a https://workspace-a.databricks.com \
+  --endpoint-b model-b-name \
+  --endpoint-b-name "Model B Display Name" \
+  --api-token-b TOKEN_B \
+  --api-root-b https://workspace-b.databricks.com \
+  --input-tokens 1000 \
+  --output-tokens 200 500 \
+  --qps-list 0.5 1.0 2.0 \
+  --parallel-workers 4 6 8 \
+  --requests-per-worker 5 \
+  --timeout 300 \
+  --output-dir comparison_analysis
 ```
+
+**Required parameters for Endpoint A:**
+- `--endpoint-a`: First endpoint name
+- `--endpoint-a-name`: Display name for charts/reports
+- `--api-token-a`: API token for endpoint A
+
+**Required parameters for Endpoint B:**
+- `--endpoint-b`: Second endpoint name
+- `--endpoint-b-name`: Display name for charts/reports
+- `--api-token-b`: API token for endpoint B
+
+**Optional parameters:**
+- `--api-root-a`: Workspace URL for endpoint A (default: env var or default URL)
+- `--api-root-b`: Workspace URL for endpoint B (default: env var or default URL)
+- Same test parameters as single endpoint benchmark
+- `--output-dir`: Output directory (default: comparison_analysis)
 
 ---
 
-### Compare Multiple Endpoints
+### Compare Multiple Endpoints (3-4)
 
 **Script:** `src/compare_multi_endpoints.py`
-**Use when:** Evaluating 3+ models at once
+**Use when:** Evaluating 3-4 models at once
 
 ```bash
 python3 src/compare_multi_endpoints.py \
-  --endpoints model1 model2 model3 model4 \
-  --qps 0.5 1.0 2.0 \
-  --num_workers 2 4 8 \
-  --max_output_tokens 200 500 \
-  --runs 3
+  --endpoint-1 model1 \
+  --endpoint-1-name "Model 1" \
+  --api-token-1 TOKEN_1 \
+  --api-root-1 https://workspace1.databricks.com \
+  --endpoint-2 model2 \
+  --endpoint-2-name "Model 2" \
+  --api-token-2 TOKEN_2 \
+  --api-root-2 https://workspace2.databricks.com \
+  --endpoint-3 model3 \
+  --endpoint-3-name "Model 3" \
+  --api-token-3 TOKEN_3 \
+  --api-root-3 https://workspace3.databricks.com \
+  --endpoint-4 model4 \
+  --endpoint-4-name "Model 4" \
+  --api-token-4 TOKEN_4 \
+  --api-root-4 https://workspace4.databricks.com \
+  --input-tokens 1000 \
+  --output-tokens 200 500 1000 \
+  --qps-list 0.5 1.0 2.0 \
+  --parallel-workers 4 6 8 \
+  --requests-per-worker 5 \
+  --timeout 300 \
+  --output-dir multi_endpoint_comparison
 ```
 
-**Common parameters:**
-- `--endpoints`: Space-separated list of endpoints
-- `--qps`: List of QPS values to test
-- `--num_workers`: List of worker counts
-- `--max_output_tokens`: List of token limits
-- `--runs`: Number of test iterations (default: 1)
-- `--output_dir`: Where to save results (default: comparison_results)
+**Required parameters:**
+- Endpoints 1 and 2 are **required** (minimum 2 endpoints)
+- Endpoints 3 and 4 are **optional**
+- Each endpoint requires:
+  - `--endpoint-N`: Endpoint name
+  - `--endpoint-N-name`: Display name
+  - `--api-token-N`: API token
+  - `--api-root-N`: Workspace URL (optional, has default)
+
+**Test parameters:**
+- Same as single endpoint benchmark
+- `--requests-per-worker`: Maximum 5 requests per worker
+- `--output-dir`: Output directory (default: multi_endpoint_comparison)
+
+**Output files:**
+- Results saved to `all_results.json` (not `results.json`)
+- Separate comparison chart for each (QPS × Workers × Tokens) combination
+
+**Generate PDF report:**
+```bash
+python3 src/generate_pdf_report.py \
+  --folder multi_endpoint_comparison \
+  --results-filename all_results.json
+```
 
 ---
 
@@ -219,28 +419,126 @@ python3 utils/monitor_live.py --endpoint your-endpoint
 
 ---
 
+## 📊 Single vs Multiple Benchmarks: When to Use What
+
+### Decision Guide
+
+| Scenario | Script to Use | Why |
+|----------|---------------|-----|
+| Test ONE endpoint performance | `benchmark_llm.py` | Simplest - just need endpoint name and token |
+| Compare TWO endpoints | `compare_endpoints.py` | Side-by-side comparison with detailed charts |
+| Compare 3-4 endpoints | `compare_multi_endpoints.py` | Comprehensive comparison across multiple models |
+
+### Key Differences
+
+#### Single Endpoint (`benchmark_llm.py`)
+- **Input:** 1 endpoint
+- **Output:** Performance metrics + summary table + optional JSON + performance charts (when using --output-dir)
+- **Charts generated (with --output-dir):**
+  - Performance charts per worker configuration showing latency, P95, throughput, failures
+  - Overall summary chart showing scaling trends
+- **Use case:** Load testing, performance validation, capacity planning, PDF report generation
+- **Example:**
+  ```bash
+  python3 src/benchmark_llm.py \
+    --endpoint my-gpt-model \
+    --api-token dapi123abc \
+    --api-root https://workspace.databricks.com \
+    --output-dir my_benchmark_results
+
+  # Then generate PDF report:
+  python3 src/generate_pdf_report.py --folder my_benchmark_results
+  ```
+
+#### Two Endpoints (`compare_endpoints.py`)
+- **Input:** 2 endpoints (A and B)
+- **Output:** Comparison charts + detailed analysis + JSON results
+- **Charts generated:**
+  - One chart per worker configuration (e.g., `comparison_4workers.png`, `comparison_8workers.png`)
+  - Overall summary chart showing trends
+- **Use case:** A/B testing, choosing between two models
+- **Example:**
+  ```bash
+  python3 src/compare_endpoints.py \
+    --endpoint-a gpt-20b --endpoint-a-name "GPT-20B" --api-token-a TOKEN_A \
+    --endpoint-b gpt-120b --endpoint-b-name "GPT-120B" --api-token-b TOKEN_B
+  ```
+
+#### Multiple Endpoints (`compare_multi_endpoints.py`)
+- **Input:** 2-4 endpoints
+- **Output:** Individual comparison charts for EVERY configuration combination + comprehensive JSON (`all_results.json`)
+- **Charts generated:**
+  - Separate chart for each (QPS × Workers × Output Tokens) combination
+  - Example: 3 QPS values × 3 worker counts × 3 token sizes = 27 charts
+- **Use case:** Vendor selection, comprehensive model evaluation
+- **Example:**
+  ```bash
+  python3 src/compare_multi_endpoints.py \
+    --endpoint-1 model1 --endpoint-1-name "Model 1" --api-token-1 TOKEN_1 \
+    --endpoint-2 model2 --endpoint-2-name "Model 2" --api-token-2 TOKEN_2 \
+    --endpoint-3 model3 --endpoint-3-name "Model 3" --api-token-3 TOKEN_3
+
+  # Generate PDF report
+  python3 src/generate_pdf_report.py \
+    --folder multi_endpoint_comparison \
+    --results-filename all_results.json
+  ```
+
+### Configuration Complexity
+
+```
+Single Endpoint:    ✓ Simplest   → Just endpoint + token
+Two Endpoints:      ✓✓ Medium    → 2 sets of credentials
+Multiple Endpoints: ✓✓✓ Complex  → 2-4 sets of credentials + more charts
+```
+
+### Environment Variables (Optional)
+
+Set these to avoid repeating `--api-root` every time:
+
+```bash
+# In your ~/.bashrc or ~/.zshrc
+export API_ROOT="https://your-workspace.cloud.databricks.com"
+
+# Now you can omit --api-root in commands
+python3 src/benchmark_llm.py \
+  --endpoint my-model \
+  --api-token dapi123abc
+```
+
+---
+
 ## 🎓 Common Usage Patterns
 
 ### Pattern 1: Quick Performance Check
 ```bash
-# Run benchmark
-python3 src/benchmark_llm.py --endpoint my-endpoint --qps 1.0 --num_workers 4
+# Run benchmark (generates charts automatically)
+python3 src/benchmark_llm.py \
+  --endpoint my-endpoint \
+  --api-token dapi123abc \
+  --api-root https://workspace.databricks.com \
+  --qps-list 1.0 \
+  --parallel-workers 4 \
+  --output-dir my_results
 
-# Get report
-./utils/generate_report.sh comparison_results
+# Generate PDF report
+python3 src/generate_pdf_report.py --folder my_results
 ```
 
-### Pattern 2: Compare Models for Procurement
+### Pattern 2: Compare Models for Procurement (4 Vendors)
 ```bash
 # Test 4 vendors
 python3 src/compare_multi_endpoints.py \
-  --endpoints vendor-a vendor-b vendor-c vendor-d \
-  --qps 0.5 1.0 2.0 \
-  --num_workers 2 4 \
-  --runs 5
+  --endpoint-1 vendor-a --endpoint-1-name "Vendor A" --api-token-1 TOKEN_A \
+  --endpoint-2 vendor-b --endpoint-2-name "Vendor B" --api-token-2 TOKEN_B \
+  --endpoint-3 vendor-c --endpoint-3-name "Vendor C" --api-token-3 TOKEN_C \
+  --endpoint-4 vendor-d --endpoint-4-name "Vendor D" --api-token-4 TOKEN_D \
+  --qps-list 0.5 1.0 2.0 \
+  --parallel-workers 2 4 \
+  --output-dir vendor_comparison
 
 # Generate decision report
-python3 src/generate_pdf_report.py --folder comparison_results
+python3 src/generate_pdf_report.py --folder vendor_comparison
 python3 src/generate_summary_stats.py --csv
 ```
 
@@ -249,10 +547,13 @@ python3 src/generate_summary_stats.py --csv
 # Stress test at expected load
 python3 src/benchmark_llm.py \
   --endpoint prod-endpoint \
-  --qps 5.0 \
-  --num_workers 16 \
-  --max_output_tokens 500 \
-  --runs 10
+  --api-token TOKEN \
+  --api-root https://prod-workspace.databricks.com \
+  --qps-list 5.0 \
+  --parallel-workers 16 \
+  --output-tokens 500 \
+  --requests-per-worker 5 \
+  --timeout 600
 
 # Get detailed analysis
 python3 src/generate_summary_stats.py --csv --json
@@ -262,14 +563,18 @@ python3 src/generate_summary_stats.py --csv --json
 ```bash
 # Compare old vs new
 python3 src/compare_endpoints.py \
-  --endpoint1 current-prod-v1 \
-  --endpoint2 candidate-v2 \
-  --qps 1.0 2.0 5.0 \
-  --num_workers 4 8 \
-  --runs 10
+  --endpoint-a current-prod-v1 \
+  --endpoint-a-name "Current Production v1" \
+  --api-token-a TOKEN \
+  --endpoint-b candidate-v2 \
+  --endpoint-b-name "Candidate v2" \
+  --api-token-b TOKEN \
+  --qps-list 1.0 2.0 5.0 \
+  --parallel-workers 4 8 \
+  --output-dir ab_test_results
 
 # Review results
-python3 src/generate_pdf_report.py --folder comparison_results
+python3 src/generate_pdf_report.py --folder ab_test_results
 ```
 
 ### Pattern 5: Daily Automated Testing
@@ -279,11 +584,22 @@ python3 src/generate_pdf_report.py --folder comparison_results
 
 DATE=$(date +%Y%m%d)
 
-python3 src/compare_multi_endpoints.py \
-  --endpoints ep1 ep2 \
-  --qps 1.0 \
-  --num_workers 4 \
-  --output_dir "results_${DATE}"
+# Set your credentials
+API_TOKEN="dapi123abc"
+API_ROOT="https://workspace.databricks.com"
+
+python3 src/compare_endpoints.py \
+  --endpoint-a production-endpoint \
+  --endpoint-a-name "Production" \
+  --api-token-a $API_TOKEN \
+  --api-root-a $API_ROOT \
+  --endpoint-b staging-endpoint \
+  --endpoint-b-name "Staging" \
+  --api-token-b $API_TOKEN \
+  --api-root-b $API_ROOT \
+  --qps-list 1.0 \
+  --parallel-workers 4 \
+  --output-dir "results_${DATE}"
 
 python3 src/generate_pdf_report.py \
   --folder "results_${DATE}" \
@@ -362,7 +678,85 @@ Highest Throughput:
 
 ## 🔧 Troubleshooting
 
+### Authentication Errors
+
+**Error:** `HTTP 401 Unauthorized` or `HTTP 403 Forbidden`
+
+**Solution:**
+```bash
+# 1. Verify your API token is correct
+echo $DATABRICKS_TOKEN  # If using env var
+
+# 2. Generate a new token:
+#    Databricks Workspace → Settings → User Settings → Access Tokens → Generate New Token
+
+# 3. Test with correct format:
+python3 src/benchmark_llm.py \
+  --endpoint your-endpoint \
+  --api-token dapi1234567890abcdef \
+  --api-root https://your-workspace.cloud.databricks.com
+```
+
+### Connection Errors
+
+**Error:** `Connection refused`, `Cannot connect to host`, or timeout errors
+
+**Common causes:**
+1. **Wrong API root URL**
+   ```bash
+   # ❌ Wrong - includes /api/2.0
+   --api-root https://workspace.databricks.com/api/2.0
+
+   # ✅ Correct - just the workspace URL
+   --api-root https://workspace.databricks.com
+   ```
+
+2. **Wrong endpoint name**
+   ```bash
+   # ❌ Wrong - full URL
+   --endpoint https://workspace.databricks.com/serving-endpoints/my-model/invocations
+
+   # ✅ Correct - just the endpoint name
+   --endpoint my-model
+   ```
+
+3. **Network/VPN issues**
+   - Ensure you're connected to VPN if required
+   - Check firewall settings
+   - Test connectivity: `curl https://your-workspace.databricks.com`
+
+### Missing Required Parameters
+
+**Error:** `error: the following arguments are required`
+
+**Solutions:**
+
+For single endpoint:
+```bash
+# Minimum required parameters:
+python3 src/benchmark_llm.py \
+  --endpoint ENDPOINT_NAME \
+  --api-token YOUR_TOKEN
+```
+
+For two endpoint comparison:
+```bash
+# Minimum required parameters:
+python3 src/compare_endpoints.py \
+  --endpoint-a NAME_A --endpoint-a-name "Display A" --api-token-a TOKEN_A \
+  --endpoint-b NAME_B --endpoint-b-name "Display B" --api-token-b TOKEN_B
+```
+
+For multiple endpoints:
+```bash
+# At least 2 endpoints required:
+python3 src/compare_multi_endpoints.py \
+  --endpoint-1 NAME_1 --endpoint-1-name "Model 1" --api-token-1 TOKEN_1 \
+  --endpoint-2 NAME_2 --endpoint-2-name "Model 2" --api-token-2 TOKEN_2
+```
+
 ### "Results file not found"
+
 ```bash
 # Check what's in your folder
 ls -la comparison_results/
@@ -372,19 +766,36 @@ python3 src/generate_pdf_report.py --results-path /full/path/to/results.json
 ```
 
 ### "reportlab is required"
+
 ```bash
 python3 -m pip install reportlab pillow
 ```
 
-### High failure rates
-- Reduce QPS or workers
-- Increase timeout
-- Check endpoint health
+### High Failure Rates
 
-### Connection errors
-- Verify endpoint URL in your command arguments
-- Check API tokens are valid and not expired
-- Ensure your workspace URL is correct
+If you see many failed requests:
+- **Reduce load:** Lower `--qps-list` values (try 0.25 or 0.5)
+- **Fewer workers:** Use smaller `--parallel-workers` values (try 2 or 4)
+- **Increase timeout:** Use `--timeout 600` for slower endpoints
+- **Check endpoint health:** Verify endpoint is running in Databricks UI
+- **Reduce retries:** If endpoint is consistently failing, use `--max-retries 1` to fail faster
+
+### Slow Performance / No Output
+
+If the benchmark seems stuck:
+- **Normal for first request:** The first request may take 60-300 seconds (cold start)
+- **Watch for progress:** Look for "Worker X: Request Y" messages
+- **Check timeout:** Default is 300s - increase if needed with `--timeout 600`
+- **Reduce scope:** Start with fewer combinations:
+  ```bash
+  # Minimal test - just one configuration
+  python3 src/benchmark_llm.py \
+    --endpoint test-endpoint \
+    --api-token TOKEN \
+    --qps-list 1.0 \
+    --parallel-workers 2 \
+    --output-tokens 200
+  ```
 
 ---
 
@@ -405,26 +816,107 @@ llm-benchmark-stats --csv --json
 
 ## 🎯 Use Cases
 
-| Scenario | Script to Use |
-|----------|---------------|
-| Quick health check | `src/benchmark_llm.py` |
-| Compare 2 models | `src/compare_endpoints.py` |
-| Evaluate 3+ models | `src/compare_multi_endpoints.py` |
-| Vendor selection | `src/compare_multi_endpoints.py` + PDF report |
-| Production readiness | `src/benchmark_llm.py` with high QPS/workers |
-| A/B testing | `src/compare_endpoints.py` |
-| Daily monitoring | Automate with cron + `utils/generate_report.sh` |
-| Cost optimization | Compare different model sizes |
+| Scenario | Script to Use | Key Parameters |
+|----------|---------------|----------------|
+| Quick health check | `benchmark_llm.py` | `--endpoint --api-token` |
+| Compare 2 models | `compare_endpoints.py` | `--endpoint-a --endpoint-b` + tokens |
+| Evaluate 3-4 models | `compare_multi_endpoints.py` | `--endpoint-1 --endpoint-2 [--endpoint-3] [--endpoint-4]` |
+| Vendor selection | `compare_multi_endpoints.py` + PDF report | All 4 endpoints + comprehensive test params |
+| Production readiness | `benchmark_llm.py` | High `--qps-list` and `--parallel-workers` |
+| A/B testing new model | `compare_endpoints.py` | Production vs candidate endpoints |
+| Daily monitoring | Automate with cron + any script | Use `--output-dir results_$(date +%Y%m%d)` |
+| Cost optimization | Compare different models | Same test params across all models |
+| Load/stress testing | `benchmark_llm.py` | `--qps-list 5.0 10.0 --parallel-workers 16 32` |
 
 ---
 
 ## 💡 Pro Tips
 
 1. **Start small**: Begin with low QPS (0.5) and few workers (2)
-2. **Run multiple iterations**: Use `--runs 5` for statistical confidence
-3. **Save results**: Always use `--output_dir` to preserve data
+2. **Test gradually**: Increase load step-by-step to find limits
+3. **Save results**: Always use `--output-dir` to preserve data
 4. **Archive reports**: Keep PDFs by date for trend analysis
-5. **Test gradually**: Increase load step-by-step to find limits
+5. **Use environment variables**: Set `API_ROOT` to avoid repeating workspace URL
+6. **Monitor progress**: Watch for "Worker X: Request Y" messages to track progress
+7. **Cold starts**: First request can take 60-300s, be patient
+8. **Meaningful names**: Use descriptive `--endpoint-X-name` values for clear reports
+
+---
+
+## 📋 CLI Quick Reference
+
+### Common Parameters (All Scripts)
+
+| Parameter | Description | Example | Required |
+|-----------|-------------|---------|----------|
+| `--api-token` | Databricks API token | `dapi123abc...` | ✅ Yes |
+| `--api-root` | Workspace URL | `https://workspace.databricks.com` | ❌ No (has default) |
+| `--input-tokens` | Input token sizes (list) | `500 1000 1500` | ❌ No (default: 1000) |
+| `--output-tokens` | Output token sizes (list) | `200 500 1000` | ❌ No (default: 200 500 1000) |
+| `--qps-list` | Queries per second (list) | `0.5 1.0 2.0` | ❌ No (default: 0.5 1.0) |
+| `--parallel-workers` | Worker counts (list) | `4 6 8` | ❌ No (default: 4 6) |
+| `--requests-per-worker` | Requests per worker | `5` | ❌ No (default: 5) |
+| `--timeout` | Request timeout (seconds) | `300` | ❌ No (default: 300) |
+| `--max-retries` | Max retry attempts | `3` | ❌ No (default: 3) |
+
+### Script-Specific Parameters
+
+#### Single Endpoint (`benchmark_llm.py`)
+```bash
+--endpoint ENDPOINT_NAME          # Required: Endpoint name
+--api-token YOUR_TOKEN            # Required: API token
+--output-dir benchmark_results    # Optional: Output directory (saves JSON + generates charts)
+--output-file results.json        # Optional: Save to JSON only (no charts)
+```
+
+#### Two Endpoints (`compare_endpoints.py`)
+```bash
+--endpoint-a NAME_A               # Required: First endpoint name
+--endpoint-a-name "Display A"     # Required: Display name for A
+--api-token-a TOKEN_A             # Required: Token for A
+--api-root-a URL_A                # Optional: Workspace URL for A
+
+--endpoint-b NAME_B               # Required: Second endpoint name
+--endpoint-b-name "Display B"     # Required: Display name for B
+--api-token-b TOKEN_B             # Required: Token for B
+--api-root-b URL_B                # Optional: Workspace URL for B
+
+--output-dir comparison_analysis  # Optional: Output directory
+```
+
+#### Multiple Endpoints (`compare_multi_endpoints.py`)
+```bash
+# Endpoints 1 and 2 are REQUIRED
+--endpoint-1 NAME_1               # Required: First endpoint
+--endpoint-1-name "Model 1"       # Required: Display name
+--api-token-1 TOKEN_1             # Required: Token for endpoint 1
+--api-root-1 URL_1                # Optional: Workspace URL
+
+--endpoint-2 NAME_2               # Required: Second endpoint
+--endpoint-2-name "Model 2"       # Required: Display name
+--api-token-2 TOKEN_2             # Required: Token for endpoint 2
+--api-root-2 URL_2                # Optional: Workspace URL
+
+# Endpoints 3 and 4 are OPTIONAL
+--endpoint-3 NAME_3               # Optional: Third endpoint
+--endpoint-3-name "Model 3"       # Optional: Display name
+--api-token-3 TOKEN_3             # Optional: Token for endpoint 3
+
+--endpoint-4 NAME_4               # Optional: Fourth endpoint
+--endpoint-4-name "Model 4"       # Optional: Display name
+--api-token-4 TOKEN_4             # Optional: Token for endpoint 4
+
+--output-dir multi_comparison     # Optional: Output directory
+```
+
+### Getting Help
+
+```bash
+# Get detailed help for any script
+python3 src/benchmark_llm.py --help
+python3 src/compare_endpoints.py --help
+python3 src/compare_multi_endpoints.py --help
+```
 
 ---
 
