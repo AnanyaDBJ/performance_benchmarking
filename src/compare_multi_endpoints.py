@@ -100,7 +100,7 @@ class EndpointBenchmark:
                     # Debug: Print headers and URL
                     if i == 0 and retry_count == 0:  # Only print for first request
                         print(f"  [{self.name:15}] DEBUG URL: {self.endpoint_url}")
-                        print(f"  [{self.name:15}] DEBUG Headers: {self.headers}")
+                        # print(f"  [{self.name:15}] DEBUG Headers: {self.headers}")
 
                     # Make POST request to endpoint - use explicit JSON serialization
                     json_data = json.dumps(input_data)
