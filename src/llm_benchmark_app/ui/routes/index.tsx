@@ -1,51 +1,49 @@
+import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import Logo from "@/components/apx/logo";
+import { ConfigPanel } from "@/components/benchmark/config-panel";
+import { ResultsPanel } from "@/components/benchmark/results-panel";
+import { Activity } from "lucide-react";
 
 export const Route = createFileRoute("/")({
-  component: () => <Index />,
+  component: () => <BenchmarkDashboard />,
 });
 
-function Index() {
+function BenchmarkDashboard() {
+  const [activeRunId, setActiveRunId] = useState<string | null>(null);
+
   return (
-    <div className="min-h-screen bg-background flex flex-col items-center justify-center p-8">
-      {/* Logo and App Name */}
-      <div className="mb-8">
-        <Logo to={undefined} className="text-2xl" />
-      </div>
-
-      {/* Welcome Message */}
-      <h1 className="text-4xl md:text-5xl font-bold text-foreground text-center mb-4">
-        Welcome to {__APP_NAME__}
-      </h1>
-
-      <p className="text-muted-foreground text-center max-w-md mb-12">
-        Get started by editing{" "}
-        <code className="bg-muted px-2 py-1 rounded text-sm">
-          src/{__APP_SLUG__}/ui/routes/index.tsx
-        </code>
-      </p>
-
-      {/* Built with apx card */}
-      <a
-        href="https://github.com/databricks-solutions/apx"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="fixed bottom-8 right-8"
-      >
-        <div className="flex items-center gap-3 px-4 py-3 rounded-lg border border-border bg-card hover:bg-accent transition-colors shadow-sm">
-          <img
-            src="https://raw.githubusercontent.com/databricks-solutions/apx/refs/heads/main/assets/logo.svg"
-            className="h-8 w-8"
-            alt="apx logo"
-          />
-          <div className="flex flex-col items-start">
-            <span className="text-xs text-muted-foreground font-medium">
-              Built with
-            </span>
-            <span className="text-sm font-semibold text-foreground">apx</span>
-          </div>
+    <div className="min-h-screen bg-background">
+      {/* Header */}
+      <header className="border-b bg-card">
+        <div className="max-w-[1600px] mx-auto px-4 sm:px-6 h-14 flex items-center gap-3">
+          <Activity className="h-5 w-5 text-primary" />
+          <h1 className="text-lg font-semibold">LLM Benchmark</h1>
+          <span className="text-xs text-muted-foreground hidden sm:inline">
+            Performance testing for Databricks serving endpoints
+          </span>
         </div>
-      </a>
+      </header>
+
+      {/* Main content */}
+      <main className="max-w-[1600px] mx-auto px-4 sm:px-6 py-6">
+        <div className="grid grid-cols-1 lg:grid-cols-[380px_1fr] xl:grid-cols-[420px_1fr] gap-6">
+          {/* Left panel: Configuration */}
+          <aside className="space-y-4">
+            <ConfigPanel
+              onBenchmarkStarted={setActiveRunId}
+              activeRunId={activeRunId}
+            />
+          </aside>
+
+          {/* Right panel: Results */}
+          <section>
+            <ResultsPanel
+              activeRunId={activeRunId}
+              onSelectRun={setActiveRunId}
+            />
+          </section>
+        </div>
+      </main>
     </div>
   );
 }
