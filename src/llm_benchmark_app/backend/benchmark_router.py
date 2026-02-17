@@ -97,9 +97,12 @@ def list_endpoints(user_ws: Dependency.UserClient):
             if ep.task:
                 task = str(ep.task)
 
-            state_str = ""
-            if ep.state:
-                state_str = str(ep.state.ready) if ep.state.ready else str(ep.state.config_update) if ep.state.config_update else "UNKNOWN"
+            if ep.state and ep.state.ready:
+                state_str = ep.state.ready.value if hasattr(ep.state.ready, "value") else str(ep.state.ready)
+            elif ep.state and ep.state.config_update:
+                state_str = ep.state.config_update.value if hasattr(ep.state.config_update, "value") else str(ep.state.config_update)
+            else:
+                state_str = "READY"
 
             endpoints.append(
                 EndpointOut(

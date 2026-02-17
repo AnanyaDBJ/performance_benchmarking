@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
 import { useEndpoints, type EndpointOut } from "@/lib/benchmark-api";
+import { Button } from "@/components/ui/button";
 import { Search, Server } from "lucide-react";
 
 interface EndpointSelectorProps {
@@ -40,9 +41,21 @@ export function EndpointSelector({
         <CardTitle className="text-base flex items-center gap-2">
           <Server className="h-4 w-4" />
           Select Endpoints
-          <Badge variant="secondary" className="ml-auto">
-            {selected.length}/4
-          </Badge>
+          <div className="ml-auto flex items-center gap-2">
+            {selected.length > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-xs text-muted-foreground"
+                onClick={() => onSelectionChange([])}
+              >
+                Deselect all
+              </Button>
+            )}
+            <Badge variant="secondary">
+              {selected.length}/4
+            </Badge>
+          </div>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
