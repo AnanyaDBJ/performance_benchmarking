@@ -101,6 +101,7 @@ class EndpointBenchmark:
                     # Debug: print URL once to help troubleshoot workspace routing.
                     if i == 0 and retry_count == 0:  # Only print for first request
                         print(f"  [{self.name:15}] DEBUG URL: {self.endpoint_url}")
+                        # print(f"  [{self.name:15}] DEBUG Headers: {self.headers}")
 
                     async with session.post(
                         self.endpoint_url,
