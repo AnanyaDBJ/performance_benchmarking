@@ -14,6 +14,7 @@ import math
 import argparse
 import os
 import sys
+from urllib.parse import urlparse
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple
 import matplotlib.pyplot as plt
@@ -25,11 +26,10 @@ class EndpointBenchmark:
     """Handles benchmarking for a single endpoint"""
 
     def __init__(self, name: str, endpoint_name: str, api_root: str, api_token: str,
-                 request_timeout: int = 300, max_retries: int = 3):
+                 request_timeout: int = 300, max_retries: int = 3, log_error_body: bool = False):
         self.name = name
         self.endpoint_name = endpoint_name
         self.api_root = self._normalize_api_root(api_root)
-        self.api_token = api_token
         self.endpoint_url = f'{self.api_root}/serving-endpoints/{endpoint_name}/invocations'
         self.headers = {
             'Authorization': f'Bearer {api_token}',
@@ -37,6 +37,7 @@ class EndpointBenchmark:
         }
         self.request_timeout = request_timeout
         self.max_retries = max_retries
+        self.log_error_body = log_error_body
         self.latencies = []
         self.failed_requests = 0
 
@@ -97,14 +98,15 @@ class EndpointBenchmark:
             # Retry loop with exponential backoff
             while not success and retry_count < self.max_retries:
                 try:
-                    # Debug: Print headers and URL
+                    # Debug: print URL once to help troubleshoot workspace routing.
                     if i == 0 and retry_count == 0:  # Only print for first request
                         print(f"  [{self.name:15}] DEBUG URL: {self.endpoint_url}")
-                        print(f"  [{self.name:15}] DEBUG Headers: {self.headers}")
 
-                    # Make POST request to endpoint - use explicit JSON serialization
-                    json_data = json.dumps(input_data)
-                    async with session.post(self.endpoint_url, data=json_data) as response:
+                    async with session.post(
+                        self.endpoint_url,
+                        json=input_data,
+                        allow_redirects=False,
+                    ) as response:
                         if response.ok:
                             # Parse response and usage metadata
                             result = await response.json(content_type=None)
@@ -121,13 +123,16 @@ class EndpointBenchmark:
                             print(f"  [{self.name:15}] Worker {index}: Request {i+1}/{num_requests} ✓ {latency:.2f}s")
                         else:
                             # Response error - retry with backoff
-                            response_text = (await response.text()).replace("\n", " ")[:300]
                             request_id = response.headers.get("x-databricks-request-id", "n/a")
-                            print(
+                            message = (
                                 f"  [{self.name:15}] Worker {index}: Request {i+1}/{num_requests} "
                                 f"failed (HTTP {response.status}, req_id={request_id}) "
-                                f"body={response_text!r}, retry {retry_count+1}/{self.max_retries}"
+                                f"retry {retry_count+1}/{self.max_retries}"
                             )
+                            if self.log_error_body:
+                                response_text = (await response.text()).replace("\n", " ")[:300]
+                                message += f" body={response_text!r}"
+                            print(message)
                             retry_count += 1
                             if retry_count < self.max_retries:
                                 await asyncio.sleep(1 * retry_count)
@@ -424,6 +429,67 @@ def create_comparison_chart(results: List[Dict], qps: float, num_workers: int,
     plt.close()
 
 
+def validate_api_root(parser: argparse.ArgumentParser, api_root: str, arg_name: str) -> str:
+    """Require https:// URL with hostname to avoid token leakage."""
+    normalized = EndpointBenchmark._normalize_api_root(api_root)
+    parsed = urlparse(normalized)
+    if parsed.scheme != "https" or not parsed.netloc:
+        parser.error(
+            f"{arg_name} must be a valid https URL (example: https://your-workspace.cloud.databricks.com)"
+        )
+    return normalized
+
+
+def resolve_api_token(
+    parser: argparse.ArgumentParser,
+    *,
+    token_value: Optional[str],
+    token_env_arg: Optional[str],
+    token_stdin: bool,
+    default_env_name: str,
+    token_label: str,
+    required: bool,
+) -> Optional[str]:
+    """Resolve API token from one explicit source."""
+    sources = int(bool(token_value)) + int(bool(token_env_arg)) + int(token_stdin)
+    if sources > 1:
+        parser.error(
+            f"Use only one source for {token_label}: CLI token, --{token_label}-env, or --{token_label}-stdin."
+        )
+
+    if token_value:
+        print(
+            f"Warning: passing {token_label} via CLI can expose secrets in shell history and process lists. "
+            f"Prefer --{token_label}-env or --{token_label}-stdin.",
+            file=sys.stderr,
+        )
+        return token_value.strip()
+
+    if token_env_arg:
+        token = os.getenv(token_env_arg, "").strip()
+        if not token:
+            parser.error(f"Environment variable {token_env_arg} is empty or not set for {token_label}.")
+        return token
+
+    if token_stdin:
+        token = sys.stdin.readline().strip()
+        if not token:
+            parser.error(f"--{token_label}-stdin was set but no token was provided on stdin.")
+        return token
+
+    for env_name in (default_env_name, "DATABRICKS_API_TOKEN", "API_TOKEN"):
+        token = os.getenv(env_name, "").strip()
+        if token:
+            return token
+
+    if required:
+        parser.error(
+            f"{token_label} is required. Provide --{token_label}, --{token_label}-env <ENV_NAME>, "
+            f"--{token_label}-stdin, or set {default_env_name} (or DATABRICKS_API_TOKEN)."
+        )
+    return None
+
+
 async def run_comparison_suite(args):
     """
     Run comprehensive comparison test suite
@@ -448,7 +514,8 @@ async def run_comparison_suite(args):
         api_root=args.api_root_1,
         api_token=args.api_token_1,
         request_timeout=args.timeout,
-        max_retries=args.max_retries
+        max_retries=args.max_retries,
+        log_error_body=args.log_error_body,
     ))
 
     # Endpoint 2 (required)
@@ -458,7 +525,8 @@ async def run_comparison_suite(args):
         api_root=args.api_root_2,
         api_token=args.api_token_2,
         request_timeout=args.timeout,
-        max_retries=args.max_retries
+        max_retries=args.max_retries,
+        log_error_body=args.log_error_body,
     ))
 
     # Endpoint 3 (optional)
@@ -469,7 +537,8 @@ async def run_comparison_suite(args):
             api_root=args.api_root_3,
             api_token=args.api_token_3,
             request_timeout=args.timeout,
-            max_retries=args.max_retries
+            max_retries=args.max_retries,
+            log_error_body=args.log_error_body,
         ))
 
     # Endpoint 4 (optional)
@@ -480,7 +549,8 @@ async def run_comparison_suite(args):
             api_root=args.api_root_4,
             api_token=args.api_token_4,
             request_timeout=args.timeout,
-            max_retries=args.max_retries
+            max_retries=args.max_retries,
+            log_error_body=args.log_error_body,
         ))
 
     print(f"\n{'#'*90}")
@@ -574,15 +644,15 @@ def main():
 Examples:
   # Compare 2 endpoints (minimum)
   %(prog)s \\
-    --endpoint-1 model-a --endpoint-1-name "Model A" --api-token-1 TOKEN_A \\
-    --endpoint-2 model-b --endpoint-2-name "Model B" --api-token-2 TOKEN_B
+    --endpoint-1 model-a --endpoint-1-name "Model A" --api-token-1-env DATABRICKS_API_TOKEN_1 \\
+    --endpoint-2 model-b --endpoint-2-name "Model B" --api-token-2-env DATABRICKS_API_TOKEN_2
 
   # Compare 4 endpoints with custom traffic patterns
   %(prog)s \\
-    --endpoint-1 gpt-20b --endpoint-1-name "GPT-20B" --api-token-1 TOKEN_1 \\
-    --endpoint-2 llama-70b --endpoint-2-name "Llama-70B" --api-token-2 TOKEN_2 \\
-    --endpoint-3 claude-3 --endpoint-3-name "Claude-3" --api-token-3 TOKEN_3 \\
-    --endpoint-4 mistral --endpoint-4-name "Mistral" --api-token-4 TOKEN_4 \\
+    --endpoint-1 gpt-20b --endpoint-1-name "GPT-20B" --api-token-1-env DATABRICKS_API_TOKEN_1 \\
+    --endpoint-2 llama-70b --endpoint-2-name "Llama-70B" --api-token-2-env DATABRICKS_API_TOKEN_2 \\
+    --endpoint-3 claude-3 --endpoint-3-name "Claude-3" --api-token-3-env DATABRICKS_API_TOKEN_3 \\
+    --endpoint-4 mistral --endpoint-4-name "Mistral" --api-token-4-env DATABRICKS_API_TOKEN_4 \\
     --qps-list 0.5 1 2 \\
     --parallel-workers 4 8 \\
     --output-tokens 200 500 1000
@@ -592,34 +662,42 @@ Examples:
     # Endpoint 1 (required)
     parser.add_argument('--endpoint-1', required=True, help='First endpoint name')
     parser.add_argument('--endpoint-1-name', required=True, help='Display name for endpoint 1')
-    parser.add_argument('--api-token-1', required=True, help='API token for endpoint 1')
+    parser.add_argument('--api-token-1', help='API token for endpoint 1 (less secure; prefer --api-token-1-env or --api-token-1-stdin)')
+    parser.add_argument('--api-token-1-env', help='Read endpoint 1 token from environment variable')
+    parser.add_argument('--api-token-1-stdin', action='store_true', help='Read endpoint 1 token from stdin (first unread line)')
     parser.add_argument('--api-root-1', default=os.getenv('API_ROOT', 'https://your-workspace.cloud.databricks.com'),
                        help='API root for endpoint 1')
 
     # Endpoint 2 (required)
     parser.add_argument('--endpoint-2', required=True, help='Second endpoint name')
     parser.add_argument('--endpoint-2-name', required=True, help='Display name for endpoint 2')
-    parser.add_argument('--api-token-2', required=True, help='API token for endpoint 2')
+    parser.add_argument('--api-token-2', help='API token for endpoint 2 (less secure; prefer --api-token-2-env or --api-token-2-stdin)')
+    parser.add_argument('--api-token-2-env', help='Read endpoint 2 token from environment variable')
+    parser.add_argument('--api-token-2-stdin', action='store_true', help='Read endpoint 2 token from stdin (first unread line)')
     parser.add_argument('--api-root-2', default=os.getenv('API_ROOT', 'https://your-workspace.cloud.databricks.com'),
                        help='API root for endpoint 2')
 
     # Endpoint 3 (optional)
     parser.add_argument('--endpoint-3', help='Third endpoint name (optional)')
     parser.add_argument('--endpoint-3-name', default='Endpoint-3', help='Display name for endpoint 3')
-    parser.add_argument('--api-token-3', help='API token for endpoint 3')
+    parser.add_argument('--api-token-3', help='API token for endpoint 3 (less secure; prefer --api-token-3-env or --api-token-3-stdin)')
+    parser.add_argument('--api-token-3-env', help='Read endpoint 3 token from environment variable')
+    parser.add_argument('--api-token-3-stdin', action='store_true', help='Read endpoint 3 token from stdin (first unread line)')
     parser.add_argument('--api-root-3', default=os.getenv('API_ROOT', 'https://your-workspace.cloud.databricks.com'),
                        help='API root for endpoint 3')
 
     # Endpoint 4 (optional)
     parser.add_argument('--endpoint-4', help='Fourth endpoint name (optional)')
     parser.add_argument('--endpoint-4-name', default='Endpoint-4', help='Display name for endpoint 4')
-    parser.add_argument('--api-token-4', help='API token for endpoint 4')
+    parser.add_argument('--api-token-4', help='API token for endpoint 4 (less secure; prefer --api-token-4-env or --api-token-4-stdin)')
+    parser.add_argument('--api-token-4-env', help='Read endpoint 4 token from environment variable')
+    parser.add_argument('--api-token-4-stdin', action='store_true', help='Read endpoint 4 token from stdin (first unread line)')
     parser.add_argument('--api-root-4', default=os.getenv('API_ROOT', 'https://your-workspace.cloud.databricks.com'),
                        help='API root for endpoint 4')
 
     # Test parameters
-    parser.add_argument('--input-tokens', type=int, default=1000,
-                       help='Number of input tokens (default: 1000)')
+    parser.add_argument('--input-tokens', type=int, default=15000,
+                       help='Number of input tokens (default: 15000)')
     parser.add_argument('--output-tokens', type=int, nargs='+', default=[200, 500, 1000],
                        help='Output token sizes to test (default: 200 500 1000)')
     parser.add_argument('--qps-list', type=float, nargs='+', default=[0.5, 1.0, 2.0],
@@ -632,16 +710,64 @@ Examples:
                        help='Request timeout in seconds (default: 300)')
     parser.add_argument('--max-retries', type=int, default=3,
                        help='Maximum retry attempts (default: 3)')
+    parser.add_argument('--log-error-body', action='store_true',
+                       help='Include response body snippets in HTTP error logs (may expose sensitive data)')
     parser.add_argument('--output-dir', default='multi_endpoint_comparison',
                        help='Output directory (default: multi_endpoint_comparison)')
 
     args = parser.parse_args()
 
-    # Validate endpoints 3 and 4
-    if args.endpoint_3 and not args.api_token_3:
-        parser.error("--endpoint-3 requires --api-token-3")
-    if args.endpoint_4 and not args.api_token_4:
-        parser.error("--endpoint-4 requires --api-token-4")
+    # Validate workspace roots
+    args.api_root_1 = validate_api_root(parser, args.api_root_1, "--api-root-1")
+    args.api_root_2 = validate_api_root(parser, args.api_root_2, "--api-root-2")
+    args.api_root_3 = validate_api_root(parser, args.api_root_3, "--api-root-3")
+    args.api_root_4 = validate_api_root(parser, args.api_root_4, "--api-root-4")
+
+    # Resolve token sources
+    args.api_token_1 = resolve_api_token(
+        parser,
+        token_value=args.api_token_1,
+        token_env_arg=args.api_token_1_env,
+        token_stdin=args.api_token_1_stdin,
+        default_env_name="DATABRICKS_API_TOKEN_1",
+        token_label="api-token-1",
+        required=True,
+    )
+    args.api_token_2 = resolve_api_token(
+        parser,
+        token_value=args.api_token_2,
+        token_env_arg=args.api_token_2_env,
+        token_stdin=args.api_token_2_stdin,
+        default_env_name="DATABRICKS_API_TOKEN_2",
+        token_label="api-token-2",
+        required=True,
+    )
+
+    if args.endpoint_3:
+        args.api_token_3 = resolve_api_token(
+            parser,
+            token_value=args.api_token_3,
+            token_env_arg=args.api_token_3_env,
+            token_stdin=args.api_token_3_stdin,
+            default_env_name="DATABRICKS_API_TOKEN_3",
+            token_label="api-token-3",
+            required=True,
+        )
+    elif args.api_token_3 or args.api_token_3_env or args.api_token_3_stdin:
+        parser.error("--api-token-3* options require --endpoint-3")
+
+    if args.endpoint_4:
+        args.api_token_4 = resolve_api_token(
+            parser,
+            token_value=args.api_token_4,
+            token_env_arg=args.api_token_4_env,
+            token_stdin=args.api_token_4_stdin,
+            default_env_name="DATABRICKS_API_TOKEN_4",
+            token_label="api-token-4",
+            required=True,
+        )
+    elif args.api_token_4 or args.api_token_4_env or args.api_token_4_stdin:
+        parser.error("--api-token-4* options require --endpoint-4")
 
     # Enforce 5 request limit
     if args.requests_per_worker > 5:

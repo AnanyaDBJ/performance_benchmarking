@@ -37,9 +37,11 @@ Before running benchmarks, you need:
 ### 1. Test a Single Endpoint
 
 ```bash
+export DATABRICKS_API_TOKEN="dapi..."
+
 python3 src/benchmark_llm.py \
   --endpoint your-endpoint-name \
-  --api-token dapi1234567890abcdef \
+  --api-token-env DATABRICKS_API_TOKEN \
   --api-root https://your-workspace.cloud.databricks.com \
   --qps-list 0.5 1.0 \
   --parallel-workers 4 6 \
@@ -51,15 +53,18 @@ python3 src/benchmark_llm.py \
 ### 2. Compare Multiple Endpoints (2-4)
 
 ```bash
+export API_ROOT="https://your-workspace.cloud.databricks.com"
+export API_TOKEN="dapi..."
+
 python3 src/compare_multi_endpoints.py \
   --endpoint-1 gpt-model-a \
   --endpoint-1-name "GPT Model A" \
-  --api-token-1 dapi1234567890abcdef \
-  --api-root-1 https://your-workspace.cloud.databricks.com \
+  --api-token-1 "$API_TOKEN" \
+  --api-root-1 "$API_ROOT" \
   --endpoint-2 gpt-model-b \
   --endpoint-2-name "GPT Model B" \
-  --api-token-2 dapi0987654321fedcba \
-  --api-root-2 https://your-workspace.cloud.databricks.com \
+  --api-token-2 "$API_TOKEN" \
+  --api-root-2 "$API_ROOT" \
   --qps-list 0.5 1.0 \
   --parallel-workers 4 8
 ```
@@ -67,15 +72,26 @@ python3 src/compare_multi_endpoints.py \
 ### 3. Compare 3-4 Endpoints
 
 ```bash
+export API_ROOT="https://your-workspace.cloud.databricks.com"
+export API_TOKEN="dapi..."
+
 python3 src/compare_multi_endpoints.py \
   --endpoint-1 model-a \
   --endpoint-1-name "Model A" \
-  --api-token-1 TOKEN_1 \
-  --api-root-1 https://workspace1.databricks.com \
+  --api-token-1 "$API_TOKEN" \
+  --api-root-1 "$API_ROOT" \
   --endpoint-2 model-b \
   --endpoint-2-name "Model B" \
-  --api-token-2 TOKEN_2 \
-  --api-root-2 https://workspace2.databricks.com \
+  --api-token-2 "$API_TOKEN" \
+  --api-root-2 "$API_ROOT" \
+  --endpoint-3 model-c \
+  --endpoint-3-name "Model C" \
+  --api-token-3 "$API_TOKEN" \
+  --api-root-3 "$API_ROOT" \
+  --endpoint-4 model-d \
+  --endpoint-4-name "Model D" \
+  --api-token-4 "$API_TOKEN" \
+  --api-root-4 "$API_ROOT" \
   --qps-list 0.5 1.0 \
   --parallel-workers 4 8 \
   --output-tokens 200 500
@@ -115,42 +131,54 @@ Replace these placeholder values before running:
 
 ### Example 1: Test a Single Endpoint (Simplest)
 ```bash
+export DATABRICKS_API_TOKEN="YOUR_TOKEN"
+
 python3 src/benchmark_llm.py \
   --endpoint ENDPOINT_NAME \
-  --api-token YOUR_TOKEN \
+  --api-token-env DATABRICKS_API_TOKEN \
   --api-root YOUR_WORKSPACE
 ```
 
 ### Example 2: Compare Two Models
 ```bash
+export API_ROOT="YOUR_WORKSPACE"
+export API_TOKEN="YOUR_TOKEN"
+
 python3 src/compare_multi_endpoints.py \
   --endpoint-1 gpt-4o-mini \
   --endpoint-1-name "GPT-4o Mini" \
-  --api-token-1 YOUR_TOKEN \
-  --api-root-1 YOUR_WORKSPACE \
+  --api-token-1 "$API_TOKEN" \
+  --api-root-1 "$API_ROOT" \
   --endpoint-2 gpt-4o \
   --endpoint-2-name "GPT-4o" \
-  --api-token-2 YOUR_TOKEN \
-  --api-root-2 YOUR_WORKSPACE \
+  --api-token-2 "$API_TOKEN" \
+  --api-root-2 "$API_ROOT" \
   --qps-list 0.5 1.0 \
   --parallel-workers 4 8
 ```
 
 ### Example 3: Compare 4 Models with Custom Settings
 ```bash
+export API_ROOT="YOUR_WORKSPACE"
+export API_TOKEN="YOUR_TOKEN"
+
 python3 src/compare_multi_endpoints.py \
   --endpoint-1 gpt-4o-mini \
   --endpoint-1-name "GPT-4o Mini" \
-  --api-token-1 YOUR_TOKEN \
+  --api-token-1 "$API_TOKEN" \
+  --api-root-1 "$API_ROOT" \
   --endpoint-2 gpt-4o \
   --endpoint-2-name "GPT-4o" \
-  --api-token-2 YOUR_TOKEN \
+  --api-token-2 "$API_TOKEN" \
+  --api-root-2 "$API_ROOT" \
   --endpoint-3 claude-3-5-sonnet \
   --endpoint-3-name "Claude 3.5 Sonnet" \
-  --api-token-3 YOUR_TOKEN \
+  --api-token-3 "$API_TOKEN" \
+  --api-root-3 "$API_ROOT" \
   --endpoint-4 llama-3-70b \
   --endpoint-4-name "Llama 3 70B" \
-  --api-token-4 YOUR_TOKEN \
+  --api-token-4 "$API_TOKEN" \
+  --api-root-4 "$API_ROOT" \
   --qps-list 0.5 1.0 \
   --parallel-workers 4 8 \
   --output-tokens 200 500 \
@@ -161,12 +189,12 @@ python3 src/compare_multi_endpoints.py \
 ```bash
 # First, set environment variables (add to ~/.bashrc or ~/.zshrc for persistence)
 export API_ROOT="https://your-workspace.cloud.databricks.com"
-export API_TOKEN="dapi1234567890abcdef"
+export DATABRICKS_API_TOKEN="dapi1234567890abcdef"
 
 # Now you can omit --api-root and --api-token
 python3 src/benchmark_llm.py \
   --endpoint my-endpoint \
-  --api-token $API_TOKEN \
+  --api-token-env DATABRICKS_API_TOKEN \
   --api-root $API_ROOT
 ```
 
@@ -208,7 +236,7 @@ llm-benchmark-reporter/
 ```bash
 python3 src/benchmark_llm.py \
   --endpoint your-endpoint-name \
-  --api-token dapi1234567890abcdef \
+  --api-token-env DATABRICKS_API_TOKEN \
   --api-root https://your-workspace.cloud.databricks.com \
   --input-tokens 500 1000 1500 \
   --output-tokens 200 500 1000 \
@@ -222,11 +250,13 @@ python3 src/benchmark_llm.py \
 
 **Required parameters:**
 - `--endpoint`: Your LLM serving endpoint name (NOT the full URL)
-- `--api-token`: Databricks personal access token (starts with `dapi`)
+- One of: `--api-token`, `--api-token-env`, `--api-token-stdin`, or `DATABRICKS_API_TOKEN` env var
 
 **Optional parameters:**
 - `--api-root`: Databricks workspace URL (default: `https://your-workspace.cloud.databricks.com`)
-- `--input-tokens`: List of input token sizes to test (default: 1000). You can pass multiple values like `--input-tokens 500 1000 1500`
+- `--input-tokens`: List of input token sizes to test (default: 15000). You can pass multiple values like `--input-tokens 500 1000 1500`
+- `--api-token-env`: Read token from a named env var (recommended)
+- `--api-token-stdin`: Read token from stdin first line (recommended for automation)
 - `--output-tokens`: List of output token sizes to test (default: 200 500 1000)
 - `--qps-list`: List of queries per second rates (default: 0.5 1.0)
 - `--parallel-workers`: List of parallel worker counts (default: 4 6)
@@ -793,9 +823,11 @@ llm-benchmark-stats --csv --json
 
 | Parameter | Description | Example | Required |
 |-----------|-------------|---------|----------|
-| `--api-token` | Databricks API token | `dapi123abc...` | ✅ Yes |
+| `--api-token` | Databricks API token (less secure) | `dapi123abc...` | ❌ No |
+| `--api-token-env` | Read token from env var name | `DATABRICKS_API_TOKEN` | ❌ No |
+| `--api-token-stdin` | Read token from stdin | `printf '%s\n' "$TOKEN" | ...` | ❌ No |
 | `--api-root` | Workspace URL | `https://workspace.databricks.com` | ❌ No (has default) |
-| `--input-tokens` | Input token sizes (list) | `500 1000 1500` | ❌ No (default: 1000) |
+| `--input-tokens` | Input token sizes (list) | `500 1000 1500` | ❌ No (default: 15000) |
 | `--output-tokens` | Output token sizes (list) | `200 500 1000` | ❌ No (default: 200 500 1000) |
 | `--qps-list` | Queries per second (list) | `0.5 1.0 2.0` | ❌ No (default: 0.5 1.0) |
 | `--parallel-workers` | Worker counts (list) | `4 6 8` | ❌ No (default: 4 6) |
@@ -808,7 +840,9 @@ llm-benchmark-stats --csv --json
 #### Single Endpoint (`benchmark_llm.py`)
 ```bash
 --endpoint ENDPOINT_NAME          # Required: Endpoint name
---api-token YOUR_TOKEN            # Required: API token
+--api-token-env DATABRICKS_API_TOKEN  # Recommended token source
+--api-token YOUR_TOKEN            # Less secure token source
+--api-token-stdin                # Read token from stdin
 --output-dir benchmark_results    # Optional: Output directory (saves JSON + generates charts)
 --output-file results.json        # Optional: Save to JSON only (no charts)
 ```
@@ -818,22 +852,24 @@ llm-benchmark-stats --csv --json
 # Endpoints 1 and 2 are REQUIRED
 --endpoint-1 NAME_1               # Required: First endpoint
 --endpoint-1-name "Model 1"       # Required: Display name
---api-token-1 TOKEN_1             # Required: Token for endpoint 1
+--api-token-1 "$API_TOKEN"        # Common pattern: shared token variable
+--api-token-1-env DATABRICKS_API_TOKEN_1  # Alternative source
 --api-root-1 URL_1                # Optional: Workspace URL
 
 --endpoint-2 NAME_2               # Required: Second endpoint
 --endpoint-2-name "Model 2"       # Required: Display name
---api-token-2 TOKEN_2             # Required: Token for endpoint 2
+--api-token-2 "$API_TOKEN"        # Common pattern: shared token variable
+--api-token-2-env DATABRICKS_API_TOKEN_2  # Alternative source
 --api-root-2 URL_2                # Optional: Workspace URL
 
 # Endpoints 3 and 4 are OPTIONAL
 --endpoint-3 NAME_3               # Optional: Third endpoint
 --endpoint-3-name "Model 3"       # Optional: Display name
---api-token-3 TOKEN_3             # Optional: Token for endpoint 3
+--api-token-3 "$API_TOKEN"        # Optional token for endpoint 3
 
 --endpoint-4 NAME_4               # Optional: Fourth endpoint
 --endpoint-4-name "Model 4"       # Optional: Display name
---api-token-4 TOKEN_4             # Optional: Token for endpoint 4
+--api-token-4 "$API_TOKEN"        # Optional token for endpoint 4
 
 --output-dir multi_comparison     # Optional: Output directory
 ```

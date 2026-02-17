@@ -37,6 +37,9 @@ setup(
     install_requires=[
         "reportlab>=4.0.0",
         "pillow>=9.0.0",
+        "aiohttp>=3.9.0",
+        "requests>=2.31.0",
+        "matplotlib>=3.5.0",
     ],
     extras_require={
         "dev": [

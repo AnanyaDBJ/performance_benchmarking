@@ -4,8 +4,10 @@
 import argparse
 import os
 import time
+import sys
 from datetime import datetime
 from typing import Dict, List
+from urllib.parse import urlparse
 
 import requests
 
@@ -17,7 +19,7 @@ def get_endpoint_status(api_root: str, api_token: str, endpoint_name: str) -> Di
         "Authorization": f"Bearer {api_token}",
         "Content-Type": "application/json",
     }
-    response = requests.get(endpoint_url, headers=headers, timeout=10)
+    response = requests.get(endpoint_url, headers=headers, timeout=10, allow_redirects=False)
     response.raise_for_status()
     return response.json()
 
@@ -69,6 +71,46 @@ def monitor(api_root: str, api_token: str, endpoints: List[str], interval: int) 
         print(f"{'=' * 110}\n")
 
 
+def validate_api_root(parser: argparse.ArgumentParser, api_root: str) -> str:
+    normalized = api_root.rstrip("/")
+    parsed = urlparse(normalized)
+    if parsed.scheme != "https" or not parsed.netloc:
+        parser.error("--api-root must be a valid https URL (example: https://your-workspace.cloud.databricks.com)")
+    return normalized
+
+
+def resolve_api_token(parser: argparse.ArgumentParser, args: argparse.Namespace) -> str:
+    sources = int(bool(args.api_token)) + int(bool(args.api_token_env)) + int(args.api_token_stdin)
+    if sources > 1:
+        parser.error("Use only one token source: --api-token OR --api-token-env OR --api-token-stdin")
+
+    if args.api_token:
+        print(
+            "Warning: passing tokens via --api-token can expose secrets in shell history and process lists. "
+            "Prefer --api-token-env or --api-token-stdin.",
+            file=sys.stderr,
+        )
+        token = args.api_token.strip()
+    elif args.api_token_env:
+        token = os.getenv(args.api_token_env, "").strip()
+        if not token:
+            parser.error(f"Environment variable {args.api_token_env} is empty or not set.")
+    elif args.api_token_stdin:
+        token = sys.stdin.readline().strip()
+        if not token:
+            parser.error("--api-token-stdin was set but no token was provided on stdin.")
+    else:
+        token = os.getenv("DATABRICKS_API_TOKEN", "").strip()
+        if not token:
+            token = os.getenv("API_TOKEN", "").strip()
+        if not token:
+            parser.error(
+                "API token is required. Provide --api-token, --api-token-env <ENV_NAME>, "
+                "--api-token-stdin, or set DATABRICKS_API_TOKEN."
+            )
+    return token
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Monitor 1-4 Databricks serving endpoints in real time."
@@ -86,8 +128,16 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--api-token",
-        default=os.getenv("DATABRICKS_API_TOKEN"),
-        help="Databricks API token. Defaults to DATABRICKS_API_TOKEN env var.",
+        help="Databricks API token (less secure; prefer --api-token-env or --api-token-stdin).",
+    )
+    parser.add_argument(
+        "--api-token-env",
+        help="Read API token from the named environment variable.",
+    )
+    parser.add_argument(
+        "--api-token-stdin",
+        action="store_true",
+        help="Read API token from stdin (first line).",
     )
     parser.add_argument(
         "--interval",
@@ -96,11 +146,11 @@ def parse_args() -> argparse.Namespace:
         help="Polling interval in seconds (default: 5).",
     )
     args = parser.parse_args()
+    args.api_root = validate_api_root(parser, args.api_root)
+    args.api_token = resolve_api_token(parser, args)
 
     if len(args.endpoints) < 1 or len(args.endpoints) > 4:
         parser.error("--endpoints must contain between 1 and 4 endpoint names.")
-    if not args.api_token:
-        parser.error("--api-token is required (or set DATABRICKS_API_TOKEN).")
     if args.interval < 1:
         parser.error("--interval must be >= 1.")
     return args

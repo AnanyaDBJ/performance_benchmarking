@@ -12,6 +12,7 @@ import statistics
 import argparse
 import sys
 import os
+from urllib.parse import urlparse
 from datetime import datetime
 from typing import List, Dict, Optional
 from pathlib import Path
@@ -23,9 +24,8 @@ class LLMBenchmark:
     def __init__(self, endpoint_name: str, api_root: str, api_token: str,
                  request_timeout: int = 300, max_retries: int = 3):
         self.endpoint_name = endpoint_name
-        self.api_root = api_root
-        self.api_token = api_token
-        self.endpoint_url = f'{api_root}/serving-endpoints/{endpoint_name}/invocations'
+        self.api_root = api_root.rstrip('/')
+        self.endpoint_url = f'{self.api_root}/serving-endpoints/{endpoint_name}/invocations'
         self.headers = {
             'Authorization': f'Bearer {api_token}',
             'Content-Type': 'application/json'
@@ -78,7 +78,7 @@ class LLMBenchmark:
                     timeout = aiohttp.ClientTimeout(total=self.request_timeout)
                     async with aiohttp.ClientSession(timeout=timeout) as session:
                         async with session.post(self.endpoint_url, headers=self.headers,
-                                               json=input_data) as response:
+                                               json=input_data, allow_redirects=False) as response:
                             if response.ok:
                                 chunks = []
                                 async for chunk, _ in response.content.iter_chunks():
@@ -462,6 +462,57 @@ def create_summary_chart(results: List[Dict], endpoint_name: str, output_dir: st
     plt.close()
 
 
+def normalize_api_root(api_root: str) -> str:
+    """Normalize workspace root and strip accidental API suffix."""
+    normalized = api_root.rstrip("/")
+    suffix = "/api/2.0"
+    if normalized.endswith(suffix):
+        normalized = normalized[: -len(suffix)]
+    return normalized
+
+
+def validate_api_root(parser: argparse.ArgumentParser, api_root: str) -> str:
+    """Require https:// URL with hostname to avoid token leakage."""
+    normalized = normalize_api_root(api_root)
+    parsed = urlparse(normalized)
+    if parsed.scheme != "https" or not parsed.netloc:
+        parser.error("--api-root must be a valid https URL (example: https://your-workspace.cloud.databricks.com)")
+    return normalized
+
+
+def resolve_api_token(parser: argparse.ArgumentParser, args: argparse.Namespace) -> str:
+    """Resolve API token from one explicit source."""
+    sources = int(bool(args.api_token)) + int(bool(args.api_token_env)) + int(args.api_token_stdin)
+    if sources > 1:
+        parser.error("Use only one token source: --api-token OR --api-token-env OR --api-token-stdin")
+
+    if args.api_token:
+        print(
+            "Warning: passing tokens via --api-token can expose secrets in shell history and process lists. "
+            "Prefer --api-token-env or --api-token-stdin.",
+            file=sys.stderr,
+        )
+        token = args.api_token.strip()
+    elif args.api_token_env:
+        token = os.getenv(args.api_token_env, "").strip()
+        if not token:
+            parser.error(f"Environment variable {args.api_token_env} is empty or not set.")
+    elif args.api_token_stdin:
+        token = sys.stdin.readline().strip()
+        if not token:
+            parser.error("--api-token-stdin was set but no token was provided on stdin.")
+    else:
+        token = os.getenv("DATABRICKS_API_TOKEN", "").strip()
+        if not token:
+            token = os.getenv("API_TOKEN", "").strip()
+        if not token:
+            parser.error(
+                "API token is required. Provide --api-token, --api-token-env <ENV_NAME>, "
+                "--api-token-stdin, or set DATABRICKS_API_TOKEN."
+            )
+    return token
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='Benchmark LLM endpoint performance',
@@ -469,27 +520,31 @@ def main():
         epilog="""
 Examples:
   # Quick test with default settings
-  %(prog)s --endpoint gpt-oss-20b-load-testing --api-token YOUR_TOKEN
+  %(prog)s --endpoint gpt-oss-20b-load-testing --api-token-env DATABRICKS_API_TOKEN
 
   # Custom test with specific parameters
-  %(prog)s --endpoint my-llm --api-token TOKEN --input-tokens 500 1000 --output-tokens 200 500 --qps-list 1 2 --parallel-workers 4 8
+  %(prog)s --endpoint my-llm --api-token-env DATABRICKS_API_TOKEN --input-tokens 500 1000 --output-tokens 200 500 --qps-list 1 2 --parallel-workers 4 8
 
-  # Save results to file
-  %(prog)s --endpoint my-llm --api-token TOKEN --output results.json
+  # Read token from stdin (safer than command-line token)
+  printf '%s\n' "$DATABRICKS_API_TOKEN" | %(prog)s --endpoint my-llm --api-token-stdin --output-file results.json
         """
     )
 
     # Required arguments
     parser.add_argument('--endpoint', required=True,
                        help='Name of the Databricks serving endpoint')
-    parser.add_argument('--api-token', required=True,
-                       help='Databricks API token')
+    parser.add_argument('--api-token',
+                       help='Databricks API token (less secure; prefer --api-token-env or --api-token-stdin)')
+    parser.add_argument('--api-token-env',
+                       help='Read API token from the named environment variable')
+    parser.add_argument('--api-token-stdin', action='store_true',
+                       help='Read API token from stdin (first line)')
 
     # Optional arguments
     parser.add_argument('--api-root', default='https://your-workspace.cloud.databricks.com',
                        help='Databricks API root URL')
-    parser.add_argument('--input-tokens', type=int, nargs='+', default=[1000],
-                       help='Input token sizes to test (default: 1000)')
+    parser.add_argument('--input-tokens', type=int, nargs='+', default=[15000],
+                       help='Input token sizes to test (default: 15000)')
     parser.add_argument('--output-tokens', type=int, nargs='+', default=[200, 500, 1000],
                        help='Output token sizes to test (default: 200 500 1000)')
     parser.add_argument('--qps-list', type=float, nargs='+', default=[0.5, 1.0],
@@ -508,6 +563,8 @@ Examples:
                        help='Output directory for results and charts (default: benchmark_results)')
 
     args = parser.parse_args()
+    args.api_root = validate_api_root(parser, args.api_root)
+    args.api_token = resolve_api_token(parser, args)
 
     # Create benchmark instance
     benchmark = LLMBenchmark(
