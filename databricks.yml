@@ -1,0 +1,22 @@
+bundle:
+  name: llm-benchmark-app
+
+sync:
+  include:
+    - .build
+
+artifacts:
+  default:
+    build: uv run apx build
+
+resources:
+  apps:
+    llm-benchmark-app-app:
+      name: "llm-benchmark-app"
+      description: "llm-benchmark-app created with apx"
+      source_code_path: ./.build
+
+targets:
+  dev:
+    mode: development
+    default: true

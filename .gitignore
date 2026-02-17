@@ -1,18 +1,6 @@
-# Backup folders
-_backup_*/
-
-# Output and reports
-reports/
-comparison_results/
-results_*/
-*.pdf
-
-# Python
+# Python-generated files
 __pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
+*.py[oc]
 build/
 develop-eggs/
 dist/
@@ -25,51 +13,37 @@ parts/
 sdist/
 var/
 wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
+*.egg-info
 
-# Virtual Environment
-venv/
-env/
-ENV/
+# Virtual environments
 .venv
 
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
+# version file
+src/llm_benchmark_app/_version.py
 
-# OS
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
+# metadata file
+src/llm_benchmark_app/_metadata.py
 
-# Claude Code project files
-.claude/
+# build files
+dist
 
-# Environment files (not used in this project)
+# js-related
+node_modules/
+.tanstack
+
+# env files
 .env
+.env.local
 .env.*
 
-# Logs
-*.log
-nohup.out
+# mac
+.DS_Store
 
-# Data files
-*.csv
-*.json
-!requirements.txt
-!package.json
+# DABs 
+.databricks
 
-# Images (generated charts)
-*.png
-*.jpg
-*.jpeg
+# apx
+.apx/
+
+# UI dist folder
+src/llm_benchmark_app/__dist__/

@@ -1,0 +1,171 @@
+---
+name: apx
+description: Quick reference for apx toolkit commands and MCP tools for building Databricks Apps
+---
+
+# 🚀 apx Toolkit
+
+apx is the toolkit for building full-stack Databricks Apps with React + FastAPI.
+
+## 📦 Project Structure
+
+```
+src/llm-benchmark-app/
+├── ui/                    # React + Vite frontend
+│   ├── components/        # UI components (shadcn/ui)
+│   ├── routes/            # @tanstack/react-router pages
+│   ├── lib/               # Utilities (api client, selector)
+│   └── styles/            # CSS styles
+└── backend/               # FastAPI backend
+    ├── app.py             # Main FastAPI app
+    ├── router.py          # API routes
+    ├── models.py          # Pydantic models
+    └── core.py            # Config, logging, Dependency class, bootstrap
+```
+
+## 🔧 CLI Commands
+
+| Command | Description |
+|---------|-------------|
+| `uv run apx dev start` | 🟢 Start all dev servers (backend + frontend + OpenAPI watcher) |
+| `uv run apx dev stop` | 🔴 Stop all dev servers |
+| `uv run apx dev status` | 📊 Check status of running servers |
+| `uv run apx dev check` | ✅ Check for TypeScript/Python errors |
+| `uv run apx dev logs` | 📜 View recent logs (default: last 10m) |
+| `uv run apx dev logs -f` | 📡 Follow/stream logs in real-time |
+| `uv run apx build` | 📦 Build for production |
+| `uv run apx bun <args>` | 🍞 Run bun commands (install, add, etc.) |
+| `uv run apx components add <name>` | 🧩 Add a shadcn/ui component |
+
+## 🔌 MCP Tools
+
+When the apx MCP server is running, these tools are available:
+
+| Tool | Description |
+|------|-------------|
+| `start` | 🟢 Start development server and return the URL |
+| `stop` | 🔴 Stop the development server |
+| `restart` | 🔄 Restart development server (preserves port if possible) |
+| `logs` | 📜 Fetch recent dev server logs |
+| `check` | ✅ Check project code for errors (tsc + ty in parallel) |
+| `search_registry_components` | 🔍 Search shadcn registry components (semantic search) |
+| `add_component` | ➕ Add a component to the project |
+| `docs` | 📚 Search Databricks SDK docs for code examples |
+| `databricks_apps_logs` | 📊 Fetch logs from deployed app via Databricks CLI |
+| `get_route_info` | 🛣️ Get code example for using a specific API route |
+| `refresh_openapi` | 🔄 Regenerate OpenAPI schema and API client |
+
+## 💡 Development Workflow
+
+### Starting Development
+```bash
+uv run apx dev start      # Starts everything in background
+uv run apx dev status     # Verify servers are running
+```
+
+### Adding UI Components
+```bash
+# Search for components first
+uv run apx components add button --yes
+uv run apx components add card --yes
+```
+
+### Installing Frontend Dependencies
+```bash
+uv run apx bun add lucide-react     # Add a package
+uv run apx bun install              # Install all deps
+```
+
+### Checking for Errors
+```bash
+uv run apx dev check      # TypeScript + Python linting
+```
+
+### Viewing Logs
+```bash
+uv run apx dev logs                  # Recent logs (last 10m)
+uv run apx dev logs -d 1h            # Logs from last hour
+uv run apx dev logs -f               # Follow/stream logs live
+```
+
+## ⚡ Key Patterns
+
+### API Models (3-model pattern)
+- `Entity` - Database/internal model
+- `EntityIn` - Input/request model  
+- `EntityOut` - Output/response model
+
+### Frontend Data Fetching
+```tsx
+// Use Suspense hooks with selector()
+const { data } = useGetItemsSuspense(selector());
+```
+
+### API Routes
+```python
+@router.get("/items", response_model=list[ItemOut], operation_id="getItems")
+async def get_items():
+    ...
+```
+
+### Dependencies & Dependency Injection
+
+The `Dependency` class in `src/llm-benchmark-app/backend/core.py` provides typed FastAPI dependencies:
+
+| Dependency | Type | Description |
+|---|---|---|
+| `Dependency.Client` | `WorkspaceClient` | App-level service principal credentials |
+| `Dependency.UserClient` | `WorkspaceClient` | On behalf of user (OBO token via `X-Forwarded-Access-Token` header) |
+| `Dependency.Config` | `AppConfig` | Configuration from environment variables (`{APP_SLUG}_` prefix) |
+| `Dependency.Session` | `Session` | SQLModel database session (stateful apps only) |
+
+```python
+from .core import Dependency, create_router
+
+router = create_router()
+
+# Service principal client
+@router.get("/clusters", response_model=list[ClusterOut], operation_id="listClusters")
+def list_clusters(ws: Dependency.Client):
+    return ws.clusters.list()
+
+# User-scoped client (OBO)
+@router.get("/me", response_model=UserOut, operation_id="currentUser")
+def me(user_ws: Dependency.UserClient):
+    return user_ws.current_user.me()
+
+# Application config
+@router.get("/settings", response_model=AppSettingsOut, operation_id="getSettings")
+def get_settings(config: Dependency.Config):
+    return AppSettingsOut(app_name=config.app_name)
+
+# Database session (stateful apps only)
+@router.get("/orders", response_model=list[OrderOut], operation_id="getOrders")
+def get_orders(session: Dependency.Session):
+    return session.exec(select(Order)).all()
+```
+
+### Extending AppConfig
+```python
+class AppConfig(BaseSettings):
+    app_name: str = Field(default=app_name)
+    my_setting: str = Field(default="value")  # env var: {APP_SLUG}_MY_SETTING
+```
+
+### Custom Lifespan
+```python
+@asynccontextmanager
+async def custom_lifespan(app: FastAPI):
+    # app.state.config and app.state.workspace_client already available
+    app.state.my_resource = await init_something(app.state.config)
+    yield
+
+app = create_app(routers=[router], lifespan=custom_lifespan)
+```
+
+## 🔗 Resources
+
+- OpenAPI client: `src/llm-benchmark-app/ui/lib/api/` (auto-generated)
+- Routes: `src/llm-benchmark-app/ui/routes/`
+- Components: `src/llm-benchmark-app/ui/components/`
+- Backend: `src/llm-benchmark-app/backend/`
