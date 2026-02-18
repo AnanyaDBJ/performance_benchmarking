@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Annotated
 
 from fastapi import Header, HTTPException
@@ -73,6 +74,77 @@ def _run_to_out(run) -> BenchmarkRunOut:
 # ---------------------------------------------------------------------------
 
 
+def _classify_endpoint(detailed_ep) -> str:
+    """Classify a serving endpoint using its detailed config from .get().
+
+    Real Databricks FMAPI (pay-per-token) endpoints have a ``foundation_model``
+    whose ``name`` lives under the ``system.ai.`` catalog prefix.  Internal or
+    optimized models may also carry a ``foundation_model`` but without that prefix.
+    """
+    config = getattr(detailed_ep, "config", None)
+    entities = getattr(config, "served_entities", None) if config else None
+    if not entities:
+        return "CUSTOM"
+
+    entity = entities[0]
+
+    if getattr(entity, "external_model", None) is not None:
+        return "EXTERNAL_MODEL"
+
+    fm = getattr(entity, "foundation_model", None)
+    if fm is not None:
+        fm_name = getattr(fm, "name", "") or ""
+        if fm_name.startswith("system.ai."):
+            if getattr(entity, "min_provisioned_throughput", None) is not None:
+                return "PROVISIONED_THROUGHPUT"
+            return "PAY_PER_TOKEN"
+
+    if getattr(entity, "min_provisioned_throughput", None) is not None:
+        return "PROVISIONED_THROUGHPUT"
+
+    return "CUSTOM"
+
+
+def _fetch_endpoint_detail(user_ws, name: str) -> EndpointOut | None:
+    """Fetch full endpoint detail via .get() and build an EndpointOut."""
+    try:
+        ep = user_ws.serving_endpoints.get(name)
+    except Exception:
+        logger.warning("Failed to fetch detail for endpoint %s", name)
+        return None
+
+    model_name = None
+    model_type = None
+    task = None
+
+    if ep.config and ep.config.served_entities:
+        entity = ep.config.served_entities[0]
+        model_name = getattr(entity, "name", None) or getattr(
+            entity, "entity_name", None
+        )
+        model_type = getattr(entity, "entity_version", None)
+
+    if ep.task:
+        task = str(ep.task)
+
+    if ep.state and ep.state.ready:
+        state_str = ep.state.ready.value if hasattr(ep.state.ready, "value") else str(ep.state.ready)
+    elif ep.state and ep.state.config_update:
+        state_str = ep.state.config_update.value if hasattr(ep.state.config_update, "value") else str(ep.state.config_update)
+    else:
+        state_str = "READY"
+
+    return EndpointOut(
+        name=ep.name or "",
+        state=state_str,
+        model_name=model_name,
+        model_type=model_type,
+        creator=getattr(ep, "creator", None),
+        task=task,
+        endpoint_type=_classify_endpoint(ep),
+    )
+
+
 @benchmark_router.get(
     "/endpoints",
     response_model=list[EndpointOut],
@@ -81,39 +153,20 @@ def _run_to_out(run) -> BenchmarkRunOut:
 def list_endpoints(user_ws: Dependency.UserClient):
     """List available LLM serving endpoints in the workspace."""
     try:
-        endpoints = []
-        for ep in user_ws.serving_endpoints.list():
-            model_name = None
-            model_type = None
-            task = None
+        names = [ep.name for ep in user_ws.serving_endpoints.list() if ep.name]
 
-            if ep.config and ep.config.served_entities:
-                entity = ep.config.served_entities[0]
-                model_name = getattr(entity, "name", None) or getattr(
-                    entity, "entity_name", None
-                )
-                model_type = getattr(entity, "entity_version", None)
+        endpoints: list[EndpointOut] = []
+        with ThreadPoolExecutor(max_workers=10) as pool:
+            futures = {
+                pool.submit(_fetch_endpoint_detail, user_ws, name): name
+                for name in names
+            }
+            for future in as_completed(futures):
+                result = future.result()
+                if result is not None:
+                    endpoints.append(result)
 
-            if ep.task:
-                task = str(ep.task)
-
-            if ep.state and ep.state.ready:
-                state_str = ep.state.ready.value if hasattr(ep.state.ready, "value") else str(ep.state.ready)
-            elif ep.state and ep.state.config_update:
-                state_str = ep.state.config_update.value if hasattr(ep.state.config_update, "value") else str(ep.state.config_update)
-            else:
-                state_str = "READY"
-
-            endpoints.append(
-                EndpointOut(
-                    name=ep.name or "",
-                    state=state_str,
-                    model_name=model_name,
-                    model_type=model_type,
-                    creator=getattr(ep, "creator", None),
-                    task=task,
-                )
-            )
+        endpoints.sort(key=lambda e: e.name)
         return endpoints
     except Exception as exc:
         logger.exception("Failed to list serving endpoints")

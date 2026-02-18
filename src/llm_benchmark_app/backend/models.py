@@ -24,6 +24,7 @@ class EndpointOut(BaseModel):
     model_type: str | None = None
     creator: str | None = None
     task: str | None = None
+    endpoint_type: str = "CUSTOM"
 
 
 # ---------------------------------------------------------------------------

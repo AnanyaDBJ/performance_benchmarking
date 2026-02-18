@@ -1,13 +1,54 @@
-import { useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
-import { useEndpoints, type EndpointOut } from "@/lib/benchmark-api";
+import {
+  useEndpoints,
+  type EndpointOut,
+  type EndpointCategory,
+} from "@/lib/benchmark-api";
 import { Button } from "@/components/ui/button";
 import { Search, Server } from "lucide-react";
+
+const CATEGORY_ORDER: EndpointCategory[] = [
+  "PAY_PER_TOKEN",
+  "PROVISIONED_THROUGHPUT",
+  "EXTERNAL_MODEL",
+  "CUSTOM",
+];
+
+const CATEGORY_META: Record<
+  EndpointCategory,
+  { label: string; borderClass: string; badgeBg: string; badgeText: string }
+> = {
+  PAY_PER_TOKEN: {
+    label: "Pay-per-token",
+    borderClass: "border-l-blue-500",
+    badgeBg: "bg-blue-100 dark:bg-blue-950",
+    badgeText: "text-blue-700 dark:text-blue-300",
+  },
+  PROVISIONED_THROUGHPUT: {
+    label: "Provisioned Throughput",
+    borderClass: "border-l-violet-500",
+    badgeBg: "bg-violet-100 dark:bg-violet-950",
+    badgeText: "text-violet-700 dark:text-violet-300",
+  },
+  EXTERNAL_MODEL: {
+    label: "External Model",
+    borderClass: "border-l-amber-500",
+    badgeBg: "bg-amber-100 dark:bg-amber-950",
+    badgeText: "text-amber-700 dark:text-amber-300",
+  },
+  CUSTOM: {
+    label: "Custom",
+    borderClass: "border-l-gray-400",
+    badgeBg: "bg-gray-100 dark:bg-gray-800",
+    badgeText: "text-gray-600 dark:text-gray-400",
+  },
+};
 
 interface EndpointSelectorProps {
   selected: string[];
@@ -19,13 +60,29 @@ export function EndpointSelector({
   onSelectionChange,
 }: EndpointSelectorProps) {
   const [search, setSearch] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState<EndpointCategory | null>(null);
+  const deferredFilter = useDeferredValue(categoryFilter);
+  const deferredSearch = useDeferredValue(search);
   const { data: endpoints, isLoading, error } = useEndpoints();
 
-  const filtered = (endpoints ?? []).filter(
-    (ep) =>
-      ep.name.toLowerCase().includes(search.toLowerCase()) ||
-      (ep.model_name ?? "").toLowerCase().includes(search.toLowerCase()),
-  );
+  const filtered = useMemo(() => {
+    const q = deferredSearch.toLowerCase();
+    const matched = (endpoints ?? []).filter(
+      (ep) =>
+        (ep.name.toLowerCase().includes(q) ||
+          (ep.model_name ?? "").toLowerCase().includes(q)) &&
+        (deferredFilter === null || ep.endpoint_type === deferredFilter),
+    );
+
+    const order = Object.fromEntries(
+      CATEGORY_ORDER.map((c, i) => [c, i]),
+    ) as Record<string, number>;
+
+    return matched.sort(
+      (a, b) =>
+        (order[a.endpoint_type] ?? 99) - (order[b.endpoint_type] ?? 99),
+    );
+  }, [endpoints, deferredSearch, deferredFilter]);
 
   const toggleEndpoint = (name: string) => {
     if (selected.includes(name)) {
@@ -69,6 +126,13 @@ export function EndpointSelector({
           />
         </div>
 
+        <CategoryLegend
+          active={categoryFilter}
+          onToggle={(cat) =>
+            setCategoryFilter((prev) => (prev === cat ? null : cat))
+          }
+        />
+
         <div className="max-h-[280px] overflow-y-auto space-y-1 pr-1">
           {isLoading && (
             <div className="space-y-2">
@@ -105,6 +169,42 @@ export function EndpointSelector({
   );
 }
 
+function CategoryLegend({
+  active,
+  onToggle,
+}: {
+  active: EndpointCategory | null;
+  onToggle: (cat: EndpointCategory) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-x-1 gap-y-1 text-[10px]">
+      {CATEGORY_ORDER.map((cat) => {
+        const meta = CATEGORY_META[cat];
+        const isActive = active === cat;
+        return (
+          <button
+            key={cat}
+            type="button"
+            onClick={() => onToggle(cat)}
+            className={`flex items-center gap-1 rounded-full px-2 py-0.5 cursor-pointer ${
+              isActive
+                ? `${meta.badgeBg} ${meta.badgeText} ring-1 ring-current`
+                : "hover:bg-accent"
+            }`}
+          >
+            <span
+              className={`inline-block h-2 w-2 rounded-sm ${meta.badgeBg} border ${meta.borderClass}`}
+            />
+            <span className={isActive ? meta.badgeText : "text-muted-foreground"}>
+              {meta.label}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function EndpointRow({
   endpoint,
   checked,
@@ -123,10 +223,12 @@ function EndpointRow({
         ? "bg-yellow-500"
         : "bg-gray-400";
 
+  const cat = CATEGORY_META[endpoint.endpoint_type] ?? CATEGORY_META.CUSTOM;
+
   return (
     <Label
-      className={`flex items-center gap-3 rounded-md border p-3 cursor-pointer transition-colors hover:bg-accent/50 ${
-        checked ? "border-primary bg-accent/30" : ""
+      className={`flex items-center gap-3 rounded-md border border-l-[3px] p-3 cursor-pointer transition-colors hover:bg-accent/50 ${cat.borderClass} ${
+        checked ? "border-primary bg-accent/30 !border-l-primary" : ""
       } ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
     >
       <Checkbox
@@ -142,20 +244,19 @@ function EndpointRow({
             title={endpoint.state}
           />
         </div>
-        {(endpoint.model_name || endpoint.task) && (
-          <div className="flex items-center gap-2 mt-0.5">
-            {endpoint.model_name && (
-              <span className="text-xs text-muted-foreground truncate">
-                {endpoint.model_name}
-              </span>
-            )}
-            {endpoint.task && (
-              <Badge variant="outline" className="text-[10px] h-4 px-1">
-                {endpoint.task}
-              </Badge>
-            )}
-          </div>
-        )}
+        <div className="flex items-center gap-2 mt-0.5">
+          {endpoint.model_name && (
+            <span className="text-xs text-muted-foreground truncate">
+              {endpoint.model_name}
+            </span>
+          )}
+          <Badge
+            variant="outline"
+            className={`text-[10px] h-4 px-1 border-0 ${cat.badgeBg} ${cat.badgeText}`}
+          >
+            {cat.label}
+          </Badge>
+        </div>
       </div>
     </Label>
   );
