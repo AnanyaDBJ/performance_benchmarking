@@ -141,6 +141,7 @@ async def _worker(
     latencies: list[tuple[int, int, float]],
     failed_counter: list[int],
     emit: Any,
+    on_request_done: Any | None = None,
 ) -> None:
     """Single async worker that sends requests to an endpoint."""
     payload = _build_request_payload(in_tokens, out_tokens)
@@ -214,6 +215,9 @@ async def _worker(
                 f"Request {i + 1} FAILED after {max_retries} retries"
             )
 
+        if on_request_done is not None:
+            await on_request_done()
+
 
 async def _run_single_endpoint(
     *,
@@ -230,6 +234,7 @@ async def _run_single_endpoint(
     max_retries: int,
     cancel_event: asyncio.Event,
     emit: Any,
+    on_request_done: Any | None = None,
 ) -> dict[str, Any] | None:
     """Run benchmark for a single endpoint with given parameters."""
     host = workspace_host.rstrip("/")
@@ -265,6 +270,7 @@ async def _run_single_endpoint(
                     latencies=latencies,
                     failed_counter=failed_counter,
                     emit=emit,
+                    on_request_done=on_request_done,
                 )
             )
             for idx in range(num_workers)
@@ -328,12 +334,27 @@ async def run_benchmark_suite(run: BenchmarkRun) -> None:
     try:
         all_results: list[dict[str, Any]] = []
 
+        num_endpoints = len(config.endpoint_names)
         total_combos = (
             len(config.qps_list)
             * len(config.parallel_workers)
             * len(config.output_tokens)
             * len(config.input_tokens)
         )
+
+        total_requests = sum(
+            nw * config.requests_per_worker * num_endpoints
+            for _ in config.qps_list
+            for nw in config.parallel_workers
+            for _ in config.output_tokens
+            for _ in config.input_tokens
+        )
+        completed_requests = [0]
+
+        async def on_request_done() -> None:
+            completed_requests[0] += 1
+            run.progress = min(completed_requests[0] / max(total_requests, 1) * 100, 99.9)
+
         combo_index = 0
 
         for qps in config.qps_list:
@@ -347,7 +368,6 @@ async def run_benchmark_suite(run: BenchmarkRun) -> None:
                             return
 
                         combo_index += 1
-                        run.progress = (combo_index - 1) / total_combos * 100
 
                         await emit(
                             f"Config {combo_index}/{total_combos}: "
@@ -355,7 +375,6 @@ async def run_benchmark_suite(run: BenchmarkRun) -> None:
                             f"InTokens={in_tokens} | OutTokens={out_tokens}"
                         )
 
-                        # Run all endpoints in parallel for this config
                         endpoint_tasks = []
                         for ep_name in config.endpoint_names:
                             endpoint_tasks.append(
@@ -373,6 +392,7 @@ async def run_benchmark_suite(run: BenchmarkRun) -> None:
                                     max_retries=config.max_retries,
                                     cancel_event=run.cancel_event,
                                     emit=emit,
+                                    on_request_done=on_request_done,
                                 )
                             )
 
@@ -385,7 +405,6 @@ async def run_benchmark_suite(run: BenchmarkRun) -> None:
                                 result["input_tokens"] = in_tokens
                                 all_results.append(result)
 
-                        # Brief pause between configs
                         await asyncio.sleep(1)
 
         run.progress = 100.0

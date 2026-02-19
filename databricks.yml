@@ -17,6 +17,7 @@ resources:
       source_code_path: ./.build
       user_api_scopes:
         - serving.serving-endpoints
+      compute_size: LARGE
 targets:
   dev:
     mode: development

@@ -36,6 +36,8 @@ from .models import (
 
 logger = logging.getLogger(__name__)
 
+_io_pool = ThreadPoolExecutor(max_workers=8)
+
 benchmark_router = create_router()
 
 
@@ -74,15 +76,25 @@ def _run_to_out(run) -> BenchmarkRunOut:
 # ---------------------------------------------------------------------------
 
 
+def _has_provisioned_throughput(entity) -> bool:
+    return (
+        getattr(entity, "min_provisioned_throughput", None) is not None
+        or getattr(entity, "max_provisioned_throughput", None) is not None
+    )
+
+
 def _classify_endpoint(detailed_ep) -> str:
-    """Classify a serving endpoint using its detailed config from .get().
+    """Classify a serving endpoint using its config.
 
     Real Databricks FMAPI (pay-per-token) endpoints have a ``foundation_model``
-    whose ``name`` lives under the ``system.ai.`` catalog prefix.  Internal or
-    optimized models may also carry a ``foundation_model`` but without that prefix.
+    whose ``name`` lives under the ``system.ai.`` catalog prefix, or an
+    ``entity_name`` with the same prefix.  Provisioned-throughput variants set
+    ``min_provisioned_throughput`` and/or ``max_provisioned_throughput``.
     """
     config = getattr(detailed_ep, "config", None)
     entities = getattr(config, "served_entities", None) if config else None
+    if not entities:
+        entities = getattr(config, "served_models", None) if config else None
     if not entities:
         return "CUSTOM"
 
@@ -91,26 +103,39 @@ def _classify_endpoint(detailed_ep) -> str:
     if getattr(entity, "external_model", None) is not None:
         return "EXTERNAL_MODEL"
 
+    is_system_ai = False
+
     fm = getattr(entity, "foundation_model", None)
     if fm is not None:
         fm_name = getattr(fm, "name", "") or ""
         if fm_name.startswith("system.ai."):
-            if getattr(entity, "min_provisioned_throughput", None) is not None:
-                return "PROVISIONED_THROUGHPUT"
-            return "PAY_PER_TOKEN"
+            is_system_ai = True
 
-    if getattr(entity, "min_provisioned_throughput", None) is not None:
+    if not is_system_ai:
+        entity_name = getattr(entity, "entity_name", "") or ""
+        if entity_name.startswith("system.ai."):
+            is_system_ai = True
+
+    if is_system_ai:
+        if _has_provisioned_throughput(entity):
+            return "PROVISIONED_THROUGHPUT"
+        model_name = (
+            getattr(entity, "name", "") or getattr(entity, "entity_name", "") or ""
+        )
+        model_name = model_name.removeprefix("system.ai.")
+        if not model_name.startswith("databricks-"):
+            return "PROVISIONED_THROUGHPUT"
+        return "PAY_PER_TOKEN"
+
+    if _has_provisioned_throughput(entity):
         return "PROVISIONED_THROUGHPUT"
 
     return "CUSTOM"
 
 
-def _fetch_endpoint_detail(user_ws, name: str) -> EndpointOut | None:
-    """Fetch full endpoint detail via .get() and build an EndpointOut."""
-    try:
-        ep = user_ws.serving_endpoints.get(name)
-    except Exception:
-        logger.warning("Failed to fetch detail for endpoint %s", name)
+def _endpoint_to_out(ep) -> EndpointOut | None:
+    """Build an EndpointOut from a ServingEndpoint object (from list or get)."""
+    if not ep.name:
         return None
 
     model_name = None
@@ -145,6 +170,16 @@ def _fetch_endpoint_detail(user_ws, name: str) -> EndpointOut | None:
     )
 
 
+def _reclassify_via_get(user_ws, name: str) -> tuple[str, str]:
+    """Fetch full endpoint detail via .get() and return (name, endpoint_type)."""
+    try:
+        ep = user_ws.serving_endpoints.get(name)
+        return name, _classify_endpoint(ep)
+    except Exception:
+        logger.warning("Failed to fetch detail for endpoint %s", name)
+        return name, "CUSTOM"
+
+
 @benchmark_router.get(
     "/endpoints",
     response_model=list[EndpointOut],
@@ -153,18 +188,29 @@ def _fetch_endpoint_detail(user_ws, name: str) -> EndpointOut | None:
 def list_endpoints(user_ws: Dependency.UserClient):
     """List available LLM serving endpoints in the workspace."""
     try:
-        names = [ep.name for ep in user_ws.serving_endpoints.list() if ep.name]
-
         endpoints: list[EndpointOut] = []
-        with ThreadPoolExecutor(max_workers=10) as pool:
+        for ep in user_ws.serving_endpoints.list():
+            out = _endpoint_to_out(ep)
+            if out is not None:
+                endpoints.append(out)
+
+        ambiguous_types = {"CUSTOM", "PAY_PER_TOKEN"}
+        names_to_reclassify = [
+            e.name for e in endpoints if e.endpoint_type in ambiguous_types
+        ]
+        if names_to_reclassify:
+            reclassified: dict[str, str] = {}
             futures = {
-                pool.submit(_fetch_endpoint_detail, user_ws, name): name
-                for name in names
+                _io_pool.submit(_reclassify_via_get, user_ws, name): name
+                for name in names_to_reclassify
             }
             for future in as_completed(futures):
-                result = future.result()
-                if result is not None:
-                    endpoints.append(result)
+                name, endpoint_type = future.result()
+                reclassified[name] = endpoint_type
+
+            for ep_out in endpoints:
+                if ep_out.name in reclassified:
+                    ep_out.endpoint_type = reclassified[ep_out.name]
 
         endpoints.sort(key=lambda e: e.name)
         return endpoints

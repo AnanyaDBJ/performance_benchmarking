@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,6 +8,13 @@ import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { EndpointSelector } from "./endpoint-selector";
 import { ChipInput } from "./chip-input";
 import {
@@ -25,6 +32,8 @@ import {
   FlaskConical,
   Gauge,
   AlertCircle,
+  Terminal,
+  Maximize2,
 } from "lucide-react";
 
 interface BenchmarkConfig {
@@ -88,6 +97,8 @@ export function ConfigPanel({
   const [progressMsg, setProgressMsg] = useState("");
   const [logs, setLogs] = useState<string[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [logsModalOpen, setLogsModalOpen] = useState(false);
+  const logsEndRef = useRef<HTMLDivElement>(null);
 
   const startMutation = useStartBenchmark();
   const cancelMutation = useCancelBenchmark();
@@ -166,6 +177,12 @@ export function ConfigPanel({
   };
 
   const isRunning = isStreaming || startMutation.isPending;
+
+  useEffect(() => {
+    if (logsModalOpen && logsEndRef.current) {
+      logsEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [logs, logsModalOpen]);
 
   return (
     <div className="space-y-4">
@@ -357,36 +374,64 @@ export function ConfigPanel({
           )}
         </div>
 
-        {/* Progress */}
+        {/* Progress — click to open logs modal */}
         {(isRunning || progress > 0) && (
-          <Card>
-            <CardContent className="pt-4 space-y-3">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Progress</span>
-                <Badge variant={isRunning ? "default" : "secondary"}>
-                  {Math.round(progress)}%
-                </Badge>
-              </div>
-              <Progress value={progress} className="h-2" />
-              {progressMsg && (
-                <p className="text-xs text-muted-foreground truncate">
-                  {progressMsg}
-                </p>
-              )}
+          <>
+            <Card
+              className="cursor-pointer transition-colors hover:border-primary/50 hover:bg-accent/50"
+              onClick={() => setLogsModalOpen(true)}
+            >
+              <CardContent className="pt-4 space-y-3">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Progress</span>
+                  <div className="flex items-center gap-2">
+                    <Badge variant={isRunning ? "default" : "secondary"}>
+                      {Math.round(progress)}%
+                    </Badge>
+                    <Maximize2 className="h-3.5 w-3.5 text-muted-foreground" />
+                  </div>
+                </div>
+                <Progress value={progress} className="h-2" />
+                {progressMsg && (
+                  <p className="text-xs text-muted-foreground truncate">
+                    {progressMsg}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
 
-              {logs.length > 0 && (
-                <ScrollArea className="h-32 rounded-md border bg-muted/30 p-2">
-                  <div className="text-[11px] font-mono space-y-0.5">
-                    {logs.map((log, i) => (
-                      <div key={i} className="text-muted-foreground">
-                        {log}
-                      </div>
-                    ))}
+            <Dialog open={logsModalOpen} onOpenChange={setLogsModalOpen}>
+              <DialogContent className="max-w-none w-[80vw] h-[80vh] flex flex-col">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    <Terminal className="h-4 w-4" />
+                    Benchmark Logs
+                  </DialogTitle>
+                  <DialogDescription className="flex items-center justify-between">
+                    <span>{progressMsg || "Waiting for logs..."}</span>
+                    <Badge variant={isRunning ? "default" : "secondary"} className="ml-2">
+                      {Math.round(progress)}%
+                    </Badge>
+                  </DialogDescription>
+                </DialogHeader>
+                <Progress value={progress} className="h-2" />
+                <ScrollArea className="flex-1 min-h-0 rounded-md border bg-muted/30 p-3">
+                  <div className="text-xs font-mono space-y-0.5">
+                    {logs.length === 0 ? (
+                      <p className="text-muted-foreground italic">No logs yet...</p>
+                    ) : (
+                      logs.map((log, i) => (
+                        <div key={i} className="text-muted-foreground leading-relaxed">
+                          {log}
+                        </div>
+                      ))
+                    )}
+                    <div ref={logsEndRef} />
                   </div>
                 </ScrollArea>
-              )}
-            </CardContent>
-          </Card>
+              </DialogContent>
+            </Dialog>
+          </>
         )}
       </div>
 
