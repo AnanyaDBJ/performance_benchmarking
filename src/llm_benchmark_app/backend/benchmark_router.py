@@ -14,13 +14,14 @@ from fastapi import Header, HTTPException
 from fastapi.responses import Response, StreamingResponse
 from sse_starlette.sse import EventSourceResponse
 
+from .benchmark.db import get_run_db, list_runs_db
 from .benchmark.engine import (
     BenchmarkConfig,
     RunStatus,
     cancel_run,
     create_run,
-    get_run,
-    list_runs,
+    get_active_run,
+    list_active_runs,
     start_run,
 )
 from .benchmark.report import generate_report_bytes
@@ -69,6 +70,29 @@ def _run_to_out(run) -> BenchmarkRunOut:
         endpoint_names=run.config.endpoint_names if run.config else [],
         result_count=len(run.results),
     )
+
+
+def _get_results_for_download(run_id: str, pool) -> tuple[list, dict]:
+    """Return (results, meta) from active run or database. Raises HTTPException on failure."""
+    run = get_active_run(run_id)
+    if run:
+        if not run.results:
+            raise HTTPException(status_code=400, detail="No results available")
+        return run.results, run.results_meta
+
+    if pool is not None:
+        try:
+            db_run = get_run_db(pool, run_id)
+            if db_run:
+                if not db_run["results"]:
+                    raise HTTPException(status_code=400, detail="No results available")
+                return db_run["results"], db_run["results_meta"] or {}
+        except HTTPException:
+            raise
+        except Exception:
+            logger.exception("Failed to get run %s from database", run_id)
+
+    raise HTTPException(status_code=404, detail="Benchmark run not found")
 
 
 # ---------------------------------------------------------------------------
@@ -234,9 +258,34 @@ def list_endpoints(user_ws: Dependency.UserClient):
     response_model=list[BenchmarkRunOut],
     operation_id="listBenchmarks",
 )
-def list_benchmark_runs():
-    """List recent benchmark runs."""
-    return [_run_to_out(r) for r in list_runs()]
+def list_benchmark_runs(pool: Dependency.Pool):
+    """List benchmark runs from in-memory active runs + database history."""
+    active = [_run_to_out(r) for r in list_active_runs()]
+    active_ids = {r.id for r in active}
+
+    if pool is not None:
+        try:
+            db_rows = list_runs_db(pool)
+            for row in db_rows:
+                if row["id"] not in active_ids:
+                    active.append(
+                        BenchmarkRunOut(
+                            id=row["id"],
+                            status=row["status"],
+                            progress=row["progress"],
+                            progress_message=row["progress_message"],
+                            created_at=row["created_at"],
+                            completed_at=row["completed_at"],
+                            error=row["error"],
+                            endpoint_names=row["endpoint_names"],
+                            result_count=row["result_count"],
+                        )
+                    )
+        except Exception:
+            logger.exception("Failed to list runs from database")
+
+    active.sort(key=lambda r: r.created_at, reverse=True)
+    return active
 
 
 @benchmark_router.post(
@@ -247,6 +296,7 @@ def list_benchmark_runs():
 async def start_benchmark(
     body: BenchmarkConfigIn,
     ws: Dependency.Client,
+    pool: Dependency.Pool,
     token: Annotated[str | None, Header(alias="X-Forwarded-Access-Token")] = None,
 ):
     """Start a new benchmark run."""
@@ -270,7 +320,7 @@ async def start_benchmark(
     )
 
     run = create_run(config)
-    start_run(run)
+    start_run(run, pool=pool)
     return _run_to_out(run)
 
 
@@ -279,24 +329,41 @@ async def start_benchmark(
     response_model=BenchmarkResultsOut,
     operation_id="getBenchmark",
 )
-def get_benchmark(run_id: str):
+def get_benchmark(run_id: str, pool: Dependency.Pool):
     """Get benchmark run status and results."""
-    run = get_run(run_id)
-    if not run:
-        raise HTTPException(status_code=404, detail="Benchmark run not found")
+    run = get_active_run(run_id)
+    if run:
+        summary = None
+        if run.results:
+            data = {**run.results_meta, "results": run.results}
+            summary = generate_summary(data)
+        return BenchmarkResultsOut(
+            id=run.id,
+            status=run.status.value,
+            results=[BenchmarkResultItem(**r) for r in run.results],
+            summary=summary,
+            meta=run.results_meta if run.results_meta else None,
+        )
 
-    summary = None
-    if run.results:
-        data = {**run.results_meta, "results": run.results}
-        summary = generate_summary(data)
+    if pool is not None:
+        try:
+            db_run = get_run_db(pool, run_id)
+            if db_run:
+                summary = None
+                if db_run["results"]:
+                    data = {**(db_run["results_meta"] or {}), "results": db_run["results"]}
+                    summary = generate_summary(data)
+                return BenchmarkResultsOut(
+                    id=db_run["id"],
+                    status=db_run["status"],
+                    results=[BenchmarkResultItem(**r) for r in db_run["results"]],
+                    summary=summary,
+                    meta=db_run["results_meta"],
+                )
+        except Exception:
+            logger.exception("Failed to get run %s from database", run_id)
 
-    return BenchmarkResultsOut(
-        id=run.id,
-        status=run.status.value,
-        results=[BenchmarkResultItem(**r) for r in run.results],
-        summary=summary,
-        meta=run.results_meta if run.results_meta else None,
-    )
+    raise HTTPException(status_code=404, detail="Benchmark run not found")
 
 
 @benchmark_router.post(
@@ -306,9 +373,9 @@ def get_benchmark(run_id: str):
 )
 def cancel_benchmark(run_id: str):
     """Cancel a running benchmark."""
-    run = get_run(run_id)
+    run = get_active_run(run_id)
     if not run:
-        raise HTTPException(status_code=404, detail="Benchmark run not found")
+        raise HTTPException(status_code=404, detail="Benchmark run not found or already finished")
     if run.status not in (RunStatus.PENDING, RunStatus.RUNNING):
         raise HTTPException(status_code=400, detail="Benchmark is not running")
     cancel_run(run)
@@ -326,7 +393,7 @@ def cancel_benchmark(run_id: str):
 )
 async def stream_benchmark(run_id: str):
     """SSE stream of benchmark progress."""
-    run = get_run(run_id)
+    run = get_active_run(run_id)
     if not run:
         raise HTTPException(status_code=404, detail="Benchmark run not found")
 
@@ -360,15 +427,11 @@ async def stream_benchmark(run_id: str):
     "/benchmarks/{run_id}/pdf",
     operation_id="downloadPdf",
 )
-def download_pdf(run_id: str):
+def download_pdf(run_id: str, pool: Dependency.Pool):
     """Download PDF report for a completed benchmark."""
-    run = get_run(run_id)
-    if not run:
-        raise HTTPException(status_code=404, detail="Benchmark run not found")
-    if not run.results:
-        raise HTTPException(status_code=400, detail="No results available")
+    results, meta = _get_results_for_download(run_id, pool)
 
-    pdf_bytes = generate_report_bytes(run.results, run.results_meta)
+    pdf_bytes = generate_report_bytes(results, meta)
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
@@ -380,15 +443,11 @@ def download_pdf(run_id: str):
     "/benchmarks/{run_id}/csv",
     operation_id="downloadCsv",
 )
-def download_csv(run_id: str):
+def download_csv(run_id: str, pool: Dependency.Pool):
     """Download CSV summary for a completed benchmark."""
-    run = get_run(run_id)
-    if not run:
-        raise HTTPException(status_code=404, detail="Benchmark run not found")
-    if not run.results:
-        raise HTTPException(status_code=400, detail="No results available")
+    results, meta = _get_results_for_download(run_id, pool)
 
-    data = {**run.results_meta, "results": run.results}
+    data = {**meta, "results": results}
     csv_bytes = generate_csv_bytes(data)
     return Response(
         content=csv_bytes,
@@ -401,15 +460,11 @@ def download_csv(run_id: str):
     "/benchmarks/{run_id}/json",
     operation_id="downloadJson",
 )
-def download_json(run_id: str):
+def download_json(run_id: str, pool: Dependency.Pool):
     """Download raw JSON results for a completed benchmark."""
-    run = get_run(run_id)
-    if not run:
-        raise HTTPException(status_code=404, detail="Benchmark run not found")
-    if not run.results:
-        raise HTTPException(status_code=400, detail="No results available")
+    results, meta = _get_results_for_download(run_id, pool)
 
-    data = {**run.results_meta, "results": run.results}
+    data = {**meta, "results": results}
     json_bytes = generate_json_bytes(data)
     return Response(
         content=json_bytes,

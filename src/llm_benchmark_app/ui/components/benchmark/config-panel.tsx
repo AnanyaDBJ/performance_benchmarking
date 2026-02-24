@@ -94,15 +94,22 @@ export function ConfigPanel({
 }: ConfigPanelProps) {
   const [config, setConfig] = useState<BenchmarkConfig>(DEFAULT_CONFIG);
   const [progress, setProgress] = useState(0);
-  const [progressMsg, setProgressMsg] = useState("");
   const [statusMsg, setStatusMsg] = useState("");
   const [logs, setLogs] = useState<string[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [logsModalOpen, setLogsModalOpen] = useState(false);
   const logsEndRef = useRef<HTMLDivElement>(null);
+  const streamCleanupRef = useRef<(() => void) | null>(null);
 
   const startMutation = useStartBenchmark();
   const cancelMutation = useCancelBenchmark();
+
+  useEffect(() => {
+    return () => {
+      streamCleanupRef.current?.();
+      streamCleanupRef.current = null;
+    };
+  }, []);
 
   const updateConfig = useCallback(
     <K extends keyof BenchmarkConfig>(key: K, value: BenchmarkConfig[K]) => {
@@ -143,7 +150,6 @@ export function ConfigPanel({
 
     setLogs([]);
     setProgress(0);
-    setProgressMsg("Starting benchmark...");
     setStatusMsg("Starting benchmark...");
 
     startMutation.mutate(body, {
@@ -151,12 +157,12 @@ export function ConfigPanel({
         onBenchmarkStarted(run.id);
         setIsStreaming(true);
 
-        streamBenchmark(
+        streamCleanupRef.current?.();
+        streamCleanupRef.current = streamBenchmark(
           run.id,
           (event: ProgressEvent) => {
             if (event.progress !== undefined) setProgress(event.progress);
             if (event.message) {
-              setProgressMsg(event.message);
               setLogs((prev) => [...prev.slice(-100), event.message!]);
               if (event.message.startsWith("Config ") || event.message.startsWith("Benchmark ")) {
                 setStatusMsg(event.message);
@@ -164,11 +170,9 @@ export function ConfigPanel({
             }
             if (event.type === "done") {
               setIsStreaming(false);
+              streamCleanupRef.current = null;
               if (event.message) setStatusMsg(event.message);
             }
-          },
-          () => {
-            setIsStreaming(false);
           },
         );
       },
@@ -178,6 +182,8 @@ export function ConfigPanel({
   const handleCancel = () => {
     if (activeRunId) {
       cancelMutation.mutate(activeRunId);
+      streamCleanupRef.current?.();
+      streamCleanupRef.current = null;
       setIsStreaming(false);
     }
   };

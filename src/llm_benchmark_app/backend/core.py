@@ -10,7 +10,7 @@ from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from importlib import resources
 from pathlib import Path
-from typing import Annotated, ClassVar, TypeAlias
+from typing import Annotated, Any, ClassVar, TypeAlias
 
 from databricks.sdk import WorkspaceClient
 from dotenv import load_dotenv
@@ -208,6 +208,11 @@ def get_ws(request: Request) -> WorkspaceClient:
     return request.app.state.workspace_client
 
 
+def get_db_pool(request: Request):
+    """Returns the psycopg ConnectionPool from app.state, or None if not configured."""
+    return getattr(request.app.state, "db_pool", None)
+
+
 def get_user_ws(
     token: Annotated[str | None, Header(alias="X-Forwarded-Access-Token")] = None,
 ) -> WorkspaceClient:
@@ -243,3 +248,7 @@ class Dependency:
     Config: TypeAlias = Annotated[AppConfig, Depends(get_config)]
     """Application configuration loaded from environment variables.
     Recommended usage: `config: Dependency.Config`"""
+
+    Pool: TypeAlias = Annotated[Any, Depends(get_db_pool)]
+    """psycopg ConnectionPool (or None when Postgres is not configured).
+    Recommended usage: `pool: Dependency.Pool`"""

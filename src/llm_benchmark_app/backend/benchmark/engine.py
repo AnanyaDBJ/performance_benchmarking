@@ -69,35 +69,29 @@ class BenchmarkRun:
 
 
 # ---------------------------------------------------------------------------
-# Run Manager (in-memory store)
+# Run Manager (in-memory store for active runs in this process)
 # ---------------------------------------------------------------------------
 
-_MAX_RUNS = 20
-_runs: dict[str, BenchmarkRun] = {}
+_active_runs: dict[str, BenchmarkRun] = {}
 
 
-def get_run(run_id: str) -> BenchmarkRun | None:
-    return _runs.get(run_id)
+def get_active_run(run_id: str) -> BenchmarkRun | None:
+    return _active_runs.get(run_id)
 
 
-def list_runs() -> list[BenchmarkRun]:
-    return sorted(_runs.values(), key=lambda r: r.created_at, reverse=True)
-
-
-def _cleanup_old_runs() -> None:
-    if len(_runs) <= _MAX_RUNS:
-        return
-    sorted_runs = sorted(_runs.values(), key=lambda r: r.created_at)
-    for run in sorted_runs[: len(sorted_runs) - _MAX_RUNS]:
-        if run.status not in (RunStatus.PENDING, RunStatus.RUNNING):
-            _runs.pop(run.id, None)
+def list_active_runs() -> list[BenchmarkRun]:
+    return sorted(_active_runs.values(), key=lambda r: r.created_at, reverse=True)
 
 
 def create_run(config: BenchmarkConfig) -> BenchmarkRun:
-    _cleanup_old_runs()
     run = BenchmarkRun(config=config)
-    _runs[run.id] = run
+    _active_runs[run.id] = run
     return run
+
+
+def remove_active_run(run_id: str) -> None:
+    """Remove a finished run from the in-memory dict (after persisting to DB)."""
+    _active_runs.pop(run_id, None)
 
 
 # ---------------------------------------------------------------------------
@@ -328,7 +322,7 @@ async def _run_single_endpoint(
 # ---------------------------------------------------------------------------
 
 
-async def run_benchmark_suite(run: BenchmarkRun) -> None:
+async def run_benchmark_suite(run: BenchmarkRun, pool: Any | None = None) -> None:
     """Execute the full benchmark suite for a run. Meant to be run as a background task."""
     config = run.config
     assert config is not None
@@ -377,8 +371,10 @@ async def run_benchmark_suite(run: BenchmarkRun) -> None:
                     for in_tokens in config.input_tokens:
                         if run.cancel_event.is_set():
                             run.status = RunStatus.CANCELLED
+                            run.completed_at = datetime.now().isoformat()
                             await emit("Benchmark cancelled by user")
                             _send_done(run)
+                            asyncio.create_task(_persist_and_cleanup(run, pool))
                             return
 
                         combo_index += 1
@@ -441,6 +437,7 @@ async def run_benchmark_suite(run: BenchmarkRun) -> None:
             f"{total_combos} configurations."
         )
         _send_done(run)
+        asyncio.create_task(_persist_and_cleanup(run, pool))
 
     except Exception as exc:
         run.status = RunStatus.FAILED
@@ -453,6 +450,63 @@ async def run_benchmark_suite(run: BenchmarkRun) -> None:
         except asyncio.QueueFull:
             pass
         _send_done(run)
+        asyncio.create_task(_persist_and_cleanup(run, pool))
+
+
+async def _persist_and_cleanup(run: BenchmarkRun, pool: Any | None) -> None:
+    """Persist to DB in a background thread, then evict from memory after a delay."""
+    import logging
+
+    _log = logging.getLogger(__name__)
+    try:
+        await asyncio.get_running_loop().run_in_executor(
+            None, _persist_run, run, pool
+        )
+    except Exception:
+        _log.exception("Background persist failed for run %s", run.id)
+    # Keep the run in memory long enough for the DB to be readable on
+    # subsequent queries, then evict so it doesn't accumulate forever.
+    await asyncio.sleep(120)
+    remove_active_run(run.id)
+
+
+def _persist_run(run: BenchmarkRun, pool: Any | None) -> None:
+    """Persist a finished run to Postgres (if pool is available)."""
+    if pool is not None:
+        try:
+            from .db import save_run, save_results
+
+            config_dict = None
+            if run.config:
+                config_dict = {
+                    "endpoint_names": run.config.endpoint_names,
+                    "input_tokens": run.config.input_tokens,
+                    "output_tokens": run.config.output_tokens,
+                    "qps_list": run.config.qps_list,
+                    "parallel_workers": run.config.parallel_workers,
+                    "requests_per_worker": run.config.requests_per_worker,
+                    "timeout": run.config.timeout,
+                    "max_retries": run.config.max_retries,
+                }
+            save_run(
+                pool,
+                run_id=run.id,
+                status=run.status.value,
+                progress=run.progress,
+                progress_message=run.progress_message,
+                created_at=run.created_at,
+                completed_at=run.completed_at,
+                error=run.error,
+                endpoint_names=run.config.endpoint_names if run.config else [],
+                config=config_dict,
+                results_meta=run.results_meta if run.results_meta else None,
+            )
+            save_results(pool, run.id, run.results)
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception(
+                "Failed to persist run %s to database", run.id
+            )
 
 
 def _send_done(run: BenchmarkRun) -> None:
@@ -470,10 +524,10 @@ def _send_done(run: BenchmarkRun) -> None:
         pass
 
 
-def start_run(run: BenchmarkRun) -> None:
+def start_run(run: BenchmarkRun, pool: Any | None = None) -> None:
     """Launch the benchmark suite as a background asyncio task."""
     loop = asyncio.get_running_loop()
-    run._task = loop.create_task(run_benchmark_suite(run))
+    run._task = loop.create_task(run_benchmark_suite(run, pool=pool))
 
 
 def cancel_run(run: BenchmarkRun) -> None:
