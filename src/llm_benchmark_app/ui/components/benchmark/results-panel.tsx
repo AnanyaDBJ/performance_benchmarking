@@ -19,6 +19,7 @@ import {
   type BenchmarkRunOut,
 } from "@/lib/benchmark-api";
 import { BenchmarkCharts } from "./benchmark-charts";
+import { useState } from "react";
 import {
   Download,
   FileText,
@@ -40,15 +41,21 @@ interface ResultsPanelProps {
 }
 
 export function ResultsPanel({ activeRunId, onSelectRun }: ResultsPanelProps) {
+  const [activeTab, setActiveTab] = useState("summary");
   const { data: result, isLoading } = useBenchmarkResults(activeRunId);
   const { data: runs } = useBenchmarks();
 
   const hasResults =
     result && result.results && result.results.length > 0;
 
+  const handleSelectRun = (runId: string) => {
+    onSelectRun(runId);
+    setActiveTab("summary");
+  };
+
   return (
     <div className="space-y-4 h-full flex flex-col">
-      <Tabs defaultValue="summary" className="flex-1 flex flex-col">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
         <TabsList className="grid grid-cols-4 w-full">
           <TabsTrigger value="summary" className="text-xs">
             <LayoutDashboard className="h-3.5 w-3.5 mr-1" />
@@ -103,7 +110,7 @@ export function ResultsPanel({ activeRunId, onSelectRun }: ResultsPanelProps) {
           <HistoryTab
             runs={runs ?? []}
             activeRunId={activeRunId}
-            onSelectRun={onSelectRun}
+            onSelectRun={handleSelectRun}
           />
         </TabsContent>
       </Tabs>
@@ -126,32 +133,44 @@ function SummaryTab({
   results: BenchmarkResultItem[];
   summary: Record<string, unknown> | null;
 }) {
+  const withMetrics = results.filter((r) => r.median_latency != null);
   const totalRequests = results.reduce((s, r) => s + r.total_requests, 0);
   const successfulRequests = results.reduce(
     (s, r) => s + r.successful_requests,
     0,
   );
   const failedRequests = results.reduce((s, r) => s + r.failed_requests, 0);
-  const avgLatency =
-    results.reduce((s, r) => s + r.median_latency, 0) / results.length;
-  const avgThroughput =
-    results.reduce((s, r) => s + r.throughput, 0) / results.length;
-  const bestLatency = Math.min(...results.map((r) => r.median_latency));
-  const bestThroughput = Math.max(...results.map((r) => r.throughput));
-  const bestLatencyEp = results.find(
-    (r) => r.median_latency === bestLatency,
-  )?.endpoint_name;
-  const bestThroughputEp = results.find(
-    (r) => r.throughput === bestThroughput,
-  )?.endpoint_name;
+
+  const hasMetrics = withMetrics.length > 0;
+  const avgLatency = hasMetrics
+    ? withMetrics.reduce((s, r) => s + r.median_latency!, 0) / withMetrics.length
+    : null;
+  const avgThroughput = hasMetrics
+    ? withMetrics.reduce((s, r) => s + r.throughput!, 0) / withMetrics.length
+    : null;
+  const bestLatency = hasMetrics
+    ? Math.min(...withMetrics.map((r) => r.median_latency!))
+    : null;
+  const bestThroughput = hasMetrics
+    ? Math.max(...withMetrics.map((r) => r.throughput!))
+    : null;
+  const bestLatencyEp = hasMetrics
+    ? withMetrics.find((r) => r.median_latency === bestLatency)?.endpoint_name
+    : undefined;
+  const bestThroughputEp = hasMetrics
+    ? withMetrics.find((r) => r.throughput === bestThroughput)?.endpoint_name
+    : undefined;
 
   const successRate =
     totalRequests > 0
       ? ((successfulRequests / totalRequests) * 100).toFixed(1)
       : "0";
 
-  // Unique endpoints
   const endpoints = [...new Set(results.map((r) => r.endpoint_name))];
+
+  const worstLatency = hasMetrics
+    ? Math.max(...withMetrics.map((r) => r.median_latency!))
+    : null;
 
   return (
     <div className="space-y-4">
@@ -160,13 +179,13 @@ function SummaryTab({
         <MetricCard
           icon={<Clock className="h-4 w-4 text-blue-500" />}
           label="Best Latency"
-          value={`${bestLatency.toFixed(3)}s`}
+          value={bestLatency != null ? `${bestLatency.toFixed(3)}s` : "N/A"}
           sub={bestLatencyEp}
         />
         <MetricCard
           icon={<Zap className="h-4 w-4 text-amber-500" />}
           label="Best Throughput"
-          value={`${bestThroughput.toFixed(0)} tok/s`}
+          value={bestThroughput != null ? `${bestThroughput.toFixed(0)} tok/s` : "N/A"}
           sub={bestThroughputEp}
         />
         <MetricCard
@@ -178,8 +197,8 @@ function SummaryTab({
         <MetricCard
           icon={<Activity className="h-4 w-4 text-purple-500" />}
           label="Avg Throughput"
-          value={`${avgThroughput.toFixed(0)} tok/s`}
-          sub={`Avg latency: ${avgLatency.toFixed(3)}s`}
+          value={avgThroughput != null ? `${avgThroughput.toFixed(0)} tok/s` : "N/A"}
+          sub={avgLatency != null ? `Avg latency: ${avgLatency.toFixed(3)}s` : undefined}
         />
       </div>
 
@@ -212,8 +231,9 @@ function SummaryTab({
             </span>
             <span className="text-muted-foreground">Latency range</span>
             <span className="font-medium">
-              {bestLatency.toFixed(3)}s &ndash;{" "}
-              {Math.max(...results.map((r) => r.median_latency)).toFixed(3)}s
+              {bestLatency != null && worstLatency != null
+                ? `${bestLatency.toFixed(3)}s \u2013 ${worstLatency.toFixed(3)}s`
+                : "N/A"}
             </span>
           </div>
         </CardContent>
@@ -260,14 +280,24 @@ function RankingTable({
 }) {
   const avgMetrics = endpoints.map((ep) => {
     const epResults = results.filter((r) => r.endpoint_name === ep);
+    const withMetrics = epResults.filter((r) => r.median_latency != null);
     const avgLat =
-      epResults.reduce((s, r) => s + r.median_latency, 0) / epResults.length;
+      withMetrics.length > 0
+        ? withMetrics.reduce((s, r) => s + r.median_latency!, 0) / withMetrics.length
+        : null;
     const avgThr =
-      epResults.reduce((s, r) => s + r.throughput, 0) / epResults.length;
+      withMetrics.length > 0
+        ? withMetrics.reduce((s, r) => s + r.throughput!, 0) / withMetrics.length
+        : null;
     return { name: ep, avgLat, avgThr };
   });
 
-  const byLatency = [...avgMetrics].sort((a, b) => a.avgLat - b.avgLat);
+  const byLatency = [...avgMetrics].sort((a, b) => {
+    if (a.avgLat == null && b.avgLat == null) return 0;
+    if (a.avgLat == null) return 1;
+    if (b.avgLat == null) return -1;
+    return a.avgLat - b.avgLat;
+  });
 
   return (
     <Table>
@@ -283,16 +313,16 @@ function RankingTable({
         {byLatency.map((ep, i) => (
           <TableRow key={ep.name}>
             <TableCell className="font-medium">
-              <Badge variant={i === 0 ? "default" : "secondary"} className="w-6 h-6 p-0 justify-center">
+              <Badge variant={i === 0 && ep.avgLat != null ? "default" : "secondary"} className="w-6 h-6 p-0 justify-center">
                 {i + 1}
               </Badge>
             </TableCell>
             <TableCell className="font-medium">{ep.name}</TableCell>
             <TableCell className="text-right tabular-nums">
-              {ep.avgLat.toFixed(3)}s
+              {ep.avgLat != null ? `${ep.avgLat.toFixed(3)}s` : <span className="text-muted-foreground">N/A</span>}
             </TableCell>
             <TableCell className="text-right tabular-nums">
-              {ep.avgThr.toFixed(0)} tok/s
+              {ep.avgThr != null ? `${ep.avgThr.toFixed(0)} tok/s` : <span className="text-muted-foreground">N/A</span>}
             </TableCell>
           </TableRow>
         ))}
@@ -341,13 +371,13 @@ function DetailsTab({ results }: { results: BenchmarkResultItem[] }) {
                   {r.output_tokens}
                 </TableCell>
                 <TableCell className="text-right tabular-nums text-xs">
-                  {r.median_latency.toFixed(3)}s
+                  {r.median_latency != null ? `${r.median_latency.toFixed(3)}s` : <span className="text-muted-foreground">N/A</span>}
                 </TableCell>
                 <TableCell className="text-right tabular-nums text-xs">
-                  {r.p95_latency.toFixed(3)}s
+                  {r.p95_latency != null ? `${r.p95_latency.toFixed(3)}s` : <span className="text-muted-foreground">N/A</span>}
                 </TableCell>
                 <TableCell className="text-right tabular-nums text-xs">
-                  {r.throughput.toFixed(0)}
+                  {r.throughput != null ? r.throughput.toFixed(0) : <span className="text-muted-foreground">N/A</span>}
                 </TableCell>
                 <TableCell className="text-right text-xs">
                   <span

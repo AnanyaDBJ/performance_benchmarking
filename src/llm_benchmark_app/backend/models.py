@@ -25,6 +25,7 @@ class EndpointOut(BaseModel):
     creator: str | None = None
     task: str | None = None
     endpoint_type: str = "CUSTOM"
+    scale_to_zero_enabled: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -34,10 +35,10 @@ class EndpointOut(BaseModel):
 
 class BenchmarkConfigIn(BaseModel):
     endpoint_names: list[str] = Field(..., min_length=1, max_length=4)
-    input_tokens: list[int] = Field(default=[1000])
-    output_tokens: list[int] = Field(default=[200, 500, 1000])
-    qps_list: list[float] = Field(default=[0.5, 1.0])
-    parallel_workers: list[int] = Field(default=[4, 6])
+    input_tokens: list[int] = Field(default=[500])
+    output_tokens: list[int] = Field(default=[200])
+    qps_list: list[float] = Field(default=[1.0])
+    parallel_workers: list[int] = Field(default=[2])
     requests_per_worker: int = Field(default=5, ge=1, le=10)
     timeout: int = Field(default=300, ge=30, le=3600)
     max_retries: int = Field(default=3, ge=0, le=10)
@@ -58,11 +59,11 @@ class BenchmarkRunOut(BaseModel):
 class BenchmarkResultItem(BaseModel):
     endpoint_name: str
     num_workers: int
-    median_latency: float
-    p95_latency: float
-    throughput: float
-    avg_input_tokens: float
-    avg_output_tokens: float
+    median_latency: float | None = None
+    p95_latency: float | None = None
+    throughput: float | None = None
+    avg_input_tokens: float | None = None
+    avg_output_tokens: float | None = None
     successful_requests: int
     failed_requests: int
     total_requests: int

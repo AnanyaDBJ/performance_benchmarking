@@ -49,10 +49,10 @@ interface BenchmarkConfig {
 
 const DEFAULT_CONFIG: BenchmarkConfig = {
   selectedEndpoints: [],
-  inputTokens: [1000],
-  outputTokens: [200, 500, 1000],
-  qpsList: [0.5, 1.0],
-  parallelWorkers: [4, 6],
+  inputTokens: [500],
+  outputTokens: [200],
+  qpsList: [1.0],
+  parallelWorkers: [2],
   requestsPerWorker: 5,
   timeout: 300,
   maxRetries: 3,
@@ -60,11 +60,11 @@ const DEFAULT_CONFIG: BenchmarkConfig = {
 
 const PRESETS: Record<string, Partial<BenchmarkConfig>> = {
   quick: {
-    inputTokens: [1000],
+    inputTokens: [500],
     outputTokens: [200],
     qpsList: [1.0],
     parallelWorkers: [2],
-    requestsPerWorker: 3,
+    requestsPerWorker: 5,
   },
   standard: {
     inputTokens: [1000],
@@ -95,6 +95,7 @@ export function ConfigPanel({
   const [config, setConfig] = useState<BenchmarkConfig>(DEFAULT_CONFIG);
   const [progress, setProgress] = useState(0);
   const [progressMsg, setProgressMsg] = useState("");
+  const [statusMsg, setStatusMsg] = useState("");
   const [logs, setLogs] = useState<string[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [logsModalOpen, setLogsModalOpen] = useState(false);
@@ -143,6 +144,7 @@ export function ConfigPanel({
     setLogs([]);
     setProgress(0);
     setProgressMsg("Starting benchmark...");
+    setStatusMsg("Starting benchmark...");
 
     startMutation.mutate(body, {
       onSuccess: (run) => {
@@ -156,9 +158,13 @@ export function ConfigPanel({
             if (event.message) {
               setProgressMsg(event.message);
               setLogs((prev) => [...prev.slice(-100), event.message!]);
+              if (event.message.startsWith("Config ") || event.message.startsWith("Benchmark ")) {
+                setStatusMsg(event.message);
+              }
             }
             if (event.type === "done") {
               setIsStreaming(false);
+              if (event.message) setStatusMsg(event.message);
             }
           },
           () => {
@@ -367,6 +373,7 @@ export function ConfigPanel({
               onClick={handleCancel}
               variant="destructive"
               size="lg"
+              className="text-white"
             >
               <Square className="h-4 w-4 mr-1" />
               Cancel
@@ -374,64 +381,62 @@ export function ConfigPanel({
           )}
         </div>
 
-        {/* Progress — click to open logs modal */}
-        {(isRunning || progress > 0) && (
-          <>
-            <Card
-              className="cursor-pointer transition-colors hover:border-primary/50 hover:bg-accent/50"
-              onClick={() => setLogsModalOpen(true)}
-            >
-              <CardContent className="pt-4 space-y-3">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Progress</span>
-                  <div className="flex items-center gap-2">
-                    <Badge variant={isRunning ? "default" : "secondary"}>
-                      {Math.round(progress)}%
-                    </Badge>
-                    <Maximize2 className="h-3.5 w-3.5 text-muted-foreground" />
-                  </div>
-                </div>
-                <Progress value={progress} className="h-2" />
-                {progressMsg && (
-                  <p className="text-xs text-muted-foreground truncate">
-                    {progressMsg}
-                  </p>
+        {/* Progress — always visible; click to open logs modal */}
+        <Card
+          className={`transition-colors ${isRunning || progress > 0 ? "cursor-pointer hover:border-primary/50 hover:bg-accent/50" : ""}`}
+          onClick={isRunning || progress > 0 ? () => setLogsModalOpen(true) : undefined}
+        >
+          <CardContent className="pt-4 space-y-3">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">Progress</span>
+              <div className="flex items-center gap-2">
+                <Badge variant={isRunning ? "default" : "secondary"}>
+                  {Math.round(progress)}%
+                </Badge>
+                {(isRunning || progress > 0) && (
+                  <Maximize2 className="h-3.5 w-3.5 text-muted-foreground" />
                 )}
-              </CardContent>
-            </Card>
+              </div>
+            </div>
+            <Progress value={progress} className="h-2" />
+            <p className="text-xs text-muted-foreground truncate">
+              {statusMsg || "Ready to run benchmark"}
+            </p>
+          </CardContent>
+        </Card>
 
-            <Dialog open={logsModalOpen} onOpenChange={setLogsModalOpen}>
-              <DialogContent className="max-w-none w-[80vw] h-[80vh] flex flex-col">
-                <DialogHeader>
-                  <DialogTitle className="flex items-center gap-2">
-                    <Terminal className="h-4 w-4" />
-                    Benchmark Logs
-                  </DialogTitle>
-                  <DialogDescription className="flex items-center justify-between">
-                    <span>{progressMsg || "Waiting for logs..."}</span>
-                    <Badge variant={isRunning ? "default" : "secondary"} className="ml-2">
-                      {Math.round(progress)}%
-                    </Badge>
-                  </DialogDescription>
-                </DialogHeader>
-                <Progress value={progress} className="h-2" />
-                <ScrollArea className="flex-1 min-h-0 rounded-md border bg-muted/30 p-3">
-                  <div className="text-xs font-mono space-y-0.5">
-                    {logs.length === 0 ? (
-                      <p className="text-muted-foreground italic">No logs yet...</p>
-                    ) : (
-                      logs.map((log, i) => (
-                        <div key={i} className="text-muted-foreground leading-relaxed">
-                          {log}
-                        </div>
-                      ))
-                    )}
-                    <div ref={logsEndRef} />
-                  </div>
-                </ScrollArea>
-              </DialogContent>
-            </Dialog>
-          </>
+        {(isRunning || progress > 0) && (
+          <Dialog open={logsModalOpen} onOpenChange={setLogsModalOpen}>
+            <DialogContent className="max-w-none w-[80vw] h-[80vh] flex flex-col">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Terminal className="h-4 w-4" />
+                  Benchmark Logs
+                </DialogTitle>
+                <DialogDescription className="flex items-center justify-between">
+                  <span>{statusMsg || "Waiting for logs..."}</span>
+                  <Badge variant={isRunning ? "default" : "secondary"} className="ml-2">
+                    {Math.round(progress)}%
+                  </Badge>
+                </DialogDescription>
+              </DialogHeader>
+              <Progress value={progress} className="h-2" />
+              <ScrollArea className="flex-1 min-h-0 rounded-md border bg-muted/30 p-3">
+                <div className="text-xs font-mono space-y-0.5">
+                  {logs.length === 0 ? (
+                    <p className="text-muted-foreground italic">No logs yet...</p>
+                  ) : (
+                    logs.map((log, i) => (
+                      <div key={i} className="text-muted-foreground leading-relaxed">
+                        {log}
+                      </div>
+                    ))
+                  )}
+                  <div ref={logsEndRef} />
+                </div>
+              </ScrollArea>
+            </DialogContent>
+          </Dialog>
         )}
       </div>
 

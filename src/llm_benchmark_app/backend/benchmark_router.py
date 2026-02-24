@@ -141,6 +141,7 @@ def _endpoint_to_out(ep) -> EndpointOut | None:
     model_name = None
     model_type = None
     task = None
+    scale_to_zero = False
 
     if ep.config and ep.config.served_entities:
         entity = ep.config.served_entities[0]
@@ -148,6 +149,7 @@ def _endpoint_to_out(ep) -> EndpointOut | None:
             entity, "entity_name", None
         )
         model_type = getattr(entity, "entity_version", None)
+        scale_to_zero = bool(getattr(entity, "scale_to_zero_enabled", False))
 
     if ep.task:
         task = str(ep.task)
@@ -167,17 +169,24 @@ def _endpoint_to_out(ep) -> EndpointOut | None:
         creator=getattr(ep, "creator", None),
         task=task,
         endpoint_type=_classify_endpoint(ep),
+        scale_to_zero_enabled=scale_to_zero,
     )
 
 
-def _reclassify_via_get(user_ws, name: str) -> tuple[str, str]:
-    """Fetch full endpoint detail via .get() and return (name, endpoint_type)."""
+def _enrich_via_get(user_ws, name: str) -> tuple[str, str, bool]:
+    """Fetch full endpoint detail via .get() and return (name, endpoint_type, scale_to_zero)."""
     try:
         ep = user_ws.serving_endpoints.get(name)
-        return name, _classify_endpoint(ep)
+        endpoint_type = _classify_endpoint(ep)
+        scale_to_zero = False
+        config = getattr(ep, "config", None)
+        entities = getattr(config, "served_entities", None) if config else None
+        if entities:
+            scale_to_zero = bool(getattr(entities[0], "scale_to_zero_enabled", False))
+        return name, endpoint_type, scale_to_zero
     except Exception:
         logger.warning("Failed to fetch detail for endpoint %s", name)
-        return name, "CUSTOM"
+        return name, "CUSTOM", False
 
 
 @benchmark_router.get(
@@ -194,23 +203,19 @@ def list_endpoints(user_ws: Dependency.UserClient):
             if out is not None:
                 endpoints.append(out)
 
-        ambiguous_types = {"CUSTOM", "PAY_PER_TOKEN"}
-        names_to_reclassify = [
-            e.name for e in endpoints if e.endpoint_type in ambiguous_types
-        ]
-        if names_to_reclassify:
-            reclassified: dict[str, str] = {}
-            futures = {
-                _io_pool.submit(_reclassify_via_get, user_ws, name): name
-                for name in names_to_reclassify
-            }
-            for future in as_completed(futures):
-                name, endpoint_type = future.result()
-                reclassified[name] = endpoint_type
+        futures = {
+            _io_pool.submit(_enrich_via_get, user_ws, e.name): e.name
+            for e in endpoints
+        }
+        enriched: dict[str, tuple[str, bool]] = {}
+        for future in as_completed(futures):
+            name, endpoint_type, scale_to_zero = future.result()
+            enriched[name] = (endpoint_type, scale_to_zero)
 
-            for ep_out in endpoints:
-                if ep_out.name in reclassified:
-                    ep_out.endpoint_type = reclassified[ep_out.name]
+        for ep_out in endpoints:
+            if ep_out.name in enriched:
+                ep_out.endpoint_type = enriched[ep_out.name][0]
+                ep_out.scale_to_zero_enabled = enriched[ep_out.name][1]
 
         endpoints.sort(key=lambda e: e.name)
         return endpoints

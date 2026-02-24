@@ -279,8 +279,22 @@ async def _run_single_endpoint(
 
     elapsed_time = time.time() - start_time
 
+    total_reqs = num_workers * requests_per_worker
+
     if not latencies:
-        return None
+        return {
+            "endpoint_name": display_name,
+            "num_workers": num_workers,
+            "median_latency": None,
+            "p95_latency": None,
+            "throughput": None,
+            "avg_input_tokens": None,
+            "avg_output_tokens": None,
+            "successful_requests": 0,
+            "failed_requests": failed_counter[0],
+            "total_requests": total_reqs,
+            "elapsed_time": elapsed_time,
+        }
 
     avg_input_tokens = statistics.mean([inp for inp, _, _ in latencies])
     avg_output_tokens = statistics.mean([outp for _, outp, _ in latencies])
@@ -304,7 +318,7 @@ async def _run_single_endpoint(
         "avg_output_tokens": avg_output_tokens,
         "successful_requests": len(latencies),
         "failed_requests": failed_counter[0],
-        "total_requests": num_workers * requests_per_worker,
+        "total_requests": total_reqs,
         "elapsed_time": elapsed_time,
     }
 

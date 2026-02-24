@@ -45,7 +45,6 @@ export function BenchmarkCharts({ results }: BenchmarkChartsProps) {
   const configResults =
     selectedConfig === "all" ? results : (configs.get(selectedConfig) ?? []);
 
-  // Aggregate per endpoint for selected config
   const perEndpoint = useMemo(() => {
     const map = new Map<string, { lats: number[]; p95s: number[]; thrs: number[]; fails: number; total: number }>();
     for (const r of configResults) {
@@ -53,18 +52,25 @@ export function BenchmarkCharts({ results }: BenchmarkChartsProps) {
         map.set(r.endpoint_name, { lats: [], p95s: [], thrs: [], fails: 0, total: 0 });
       }
       const e = map.get(r.endpoint_name)!;
-      e.lats.push(r.median_latency);
-      e.p95s.push(r.p95_latency);
-      e.thrs.push(r.throughput);
+      if (r.median_latency != null) e.lats.push(r.median_latency);
+      if (r.p95_latency != null) e.p95s.push(r.p95_latency);
+      if (r.throughput != null) e.thrs.push(r.throughput);
       e.fails += r.failed_requests;
       e.total += r.total_requests;
     }
     return [...map.entries()].map(([name, v]) => ({
       name,
-      latency: +(v.lats.reduce((a, b) => a + b, 0) / v.lats.length).toFixed(3),
-      p95: +(v.p95s.reduce((a, b) => a + b, 0) / v.p95s.length).toFixed(3),
-      throughput: Math.round(v.thrs.reduce((a, b) => a + b, 0) / v.thrs.length),
+      latency: v.lats.length > 0
+        ? +(v.lats.reduce((a, b) => a + b, 0) / v.lats.length).toFixed(3)
+        : 0,
+      p95: v.p95s.length > 0
+        ? +(v.p95s.reduce((a, b) => a + b, 0) / v.p95s.length).toFixed(3)
+        : 0,
+      throughput: v.thrs.length > 0
+        ? Math.round(v.thrs.reduce((a, b) => a + b, 0) / v.thrs.length)
+        : 0,
       failures: v.fails,
+      allFailed: v.lats.length === 0,
     }));
   }, [configResults]);
 
@@ -77,11 +83,11 @@ export function BenchmarkCharts({ results }: BenchmarkChartsProps) {
       const entry: Record<string, number | string> = { workers: w };
       for (const ep of endpoints) {
         const epResults = results.filter(
-          (r) => r.endpoint_name === ep && r.num_workers === w,
+          (r) => r.endpoint_name === ep && r.num_workers === w && r.throughput != null,
         );
         if (epResults.length > 0) {
           entry[ep] = Math.round(
-            epResults.reduce((s, r) => s + r.throughput, 0) / epResults.length,
+            epResults.reduce((s, r) => s + r.throughput!, 0) / epResults.length,
           );
         }
       }
@@ -124,7 +130,10 @@ export function BenchmarkCharts({ results }: BenchmarkChartsProps) {
               <YAxis tick={{ fontSize: 11 }} />
               <Tooltip
                 contentStyle={{ fontSize: 12 }}
-                formatter={(v) => [`${v}s`, "Median Latency"]}
+                formatter={(v, _name, props) => {
+                  const d = props.payload as (typeof perEndpoint)[number];
+                  return [d.allFailed ? "N/A" : `${v}s`, "Median Latency"];
+                }}
               />
               <Bar dataKey="latency" fill="#ef4444" radius={[4, 4, 0, 0]} />
             </BarChart>
@@ -139,7 +148,10 @@ export function BenchmarkCharts({ results }: BenchmarkChartsProps) {
               <YAxis tick={{ fontSize: 11 }} />
               <Tooltip
                 contentStyle={{ fontSize: 12 }}
-                formatter={(v) => [`${v}s`, "P95 Latency"]}
+                formatter={(v, _name, props) => {
+                  const d = props.payload as (typeof perEndpoint)[number];
+                  return [d.allFailed ? "N/A" : `${v}s`, "P95 Latency"];
+                }}
               />
               <Bar dataKey="p95" fill="#c0392b" radius={[4, 4, 0, 0]} />
             </BarChart>
@@ -154,7 +166,10 @@ export function BenchmarkCharts({ results }: BenchmarkChartsProps) {
               <YAxis tick={{ fontSize: 11 }} />
               <Tooltip
                 contentStyle={{ fontSize: 12 }}
-                formatter={(v) => [`${v} tok/s`, "Throughput"]}
+                formatter={(v, _name, props) => {
+                  const d = props.payload as (typeof perEndpoint)[number];
+                  return [d.allFailed ? "N/A" : `${v} tok/s`, "Throughput"];
+                }}
               />
               <Bar dataKey="throughput" fill="#3498db" radius={[4, 4, 0, 0]} />
             </BarChart>

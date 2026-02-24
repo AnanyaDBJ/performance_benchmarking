@@ -216,12 +216,17 @@ function EndpointRow({
   disabled: boolean;
   onToggle: () => void;
 }) {
-  const stateColor =
-    endpoint.state === "READY"
+  const isScaledToZero = endpoint.state === "READY" && endpoint.scale_to_zero_enabled;
+
+  const stateColor = isScaledToZero
+    ? "bg-yellow-500"
+    : endpoint.state === "READY"
       ? "bg-green-500"
       : endpoint.state === "NOT_READY"
-        ? "bg-yellow-500"
+        ? "bg-red-500"
         : "bg-gray-400";
+
+  const stateTitle = isScaledToZero ? "SCALED_TO_ZERO" : endpoint.state;
 
   const cat = CATEGORY_META[endpoint.endpoint_type] ?? CATEGORY_META.CUSTOM;
 
@@ -241,7 +246,7 @@ function EndpointRow({
           <span className="text-sm font-medium truncate">{endpoint.name}</span>
           <span
             className={`h-2 w-2 rounded-full shrink-0 ${stateColor}`}
-            title={endpoint.state}
+            title={stateTitle}
           />
         </div>
         <div className="flex items-center gap-2 mt-0.5">
