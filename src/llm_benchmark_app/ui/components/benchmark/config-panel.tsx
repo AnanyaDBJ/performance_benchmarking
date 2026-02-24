@@ -152,6 +152,10 @@ export function ConfigPanel({
     setProgress(0);
     setStatusMsg("Starting benchmark...");
 
+    if (Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+
     startMutation.mutate(body, {
       onSuccess: (run) => {
         onBenchmarkStarted(run.id);
@@ -172,6 +176,17 @@ export function ConfigPanel({
               setIsStreaming(false);
               streamCleanupRef.current = null;
               if (event.message) setStatusMsg(event.message);
+
+              if (Notification.permission === "granted") {
+                const n = new Notification("Benchmark Complete", {
+                  body: event.message ?? "Your benchmark run has finished.",
+                  icon: "/favicon.ico",
+                });
+                n.onclick = () => {
+                  window.focus();
+                  n.close();
+                };
+              }
             }
           },
         );
