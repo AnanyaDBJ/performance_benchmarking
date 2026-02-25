@@ -1,0 +1,35 @@
+bundle:
+  name: llm-benchmark-app
+
+sync:
+  include:
+    - .build
+
+artifacts:
+  default:
+    build: uv run apx build
+
+resources:
+  database_instances:
+    benchmark_db:
+      name: llm-benchmark-db
+      capacity: CU_1
+
+  apps:
+    llm-benchmark-app-app:
+      name: "llm-benchmark-app"
+      description: "llm-benchmark-app created with apx"
+      source_code_path: ./.build
+      user_api_scopes:
+        - serving.serving-endpoints
+      compute_size: LARGE
+      resources:
+        - name: benchmark-db
+          database:
+            database_name: databricks_postgres
+            instance_name: ${resources.database_instances.benchmark_db.name}
+            permission: CAN_CONNECT_AND_CREATE
+targets:
+  dev:
+    mode: development
+    default: true
